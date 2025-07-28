@@ -1,8 +1,6 @@
 "use client";
 
-import type React from "react";
-
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,6 +18,9 @@ import {
 } from "lucide-react";
 import { LayoutWrapper } from "@/components/layout-wrapper";
 import { GitHubTokenDialog } from "@/components/github-token-dialog";
+import { ProtectedRoute } from "@/components/protected-route";
+import { useAuth } from "@/contexts/auth-context";
+import { apiRequest } from "@/lib/auth";
 
 interface Repository {
   id: number;
@@ -33,23 +34,16 @@ interface Repository {
 }
 
 export default function DashboardPage() {
-  const [user, setUser] = useState<any>(null);
+  const { user } = useAuth();
+  const router = useRouter();
   const [githubToken, setGithubToken] = useState("");
   const [repositories, setRepositories] = useState<Repository[]>([]);
   const [filteredRepos, setFilteredRepos] = useState<Repository[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isTokenDialogOpen, setIsTokenDialogOpen] = useState(false);
-  const router = useRouter();
 
   useEffect(() => {
-    const userData = localStorage.getItem("user");
-    if (!userData) {
-      router.push("/");
-      return;
-    }
-    setUser(JSON.parse(userData));
-
     // Check if token is already saved in session
     const savedToken = sessionStorage.getItem("github_token");
     if (savedToken) {
@@ -59,7 +53,7 @@ export default function DashboardPage() {
       // Fetch repositories without token (public repositories or mock data)
       fetchRepositories("");
     }
-  }, [router]);
+  }, []);
 
   useEffect(() => {
     if (searchTerm) {
@@ -247,20 +241,17 @@ export default function DashboardPage() {
     };
   }, []);
 
-  if (!user) {
-    return <div>Loading...</div>;
-  }
-
   return (
-    <LayoutWrapper user={user}>
-      <div className="container mx-auto px-4 py-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Dashboard</h1>
-          <p className="text-gray-600">
-            Connect your GitHub account and select repositories to generate
-            documentation
-          </p>
-        </div>
+    <ProtectedRoute>
+      <LayoutWrapper user={user}>
+        <div className="container mx-auto px-4 py-8">
+          <div className="mb-8">
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">Dashboard</h1>
+            <p className="text-gray-600">
+              Connect your GitHub account and select repositories to generate
+              documentation
+            </p>
+          </div>
 
         <div className="space-y-6">
           <div className="flex items-center justify-between">
@@ -415,7 +406,8 @@ export default function DashboardPage() {
           isOpen={isTokenDialogOpen}
           onClose={() => setIsTokenDialogOpen(false)}
         />
-      </div>
-    </LayoutWrapper>
+        </div>
+      </LayoutWrapper>
+    </ProtectedRoute>
   );
 }

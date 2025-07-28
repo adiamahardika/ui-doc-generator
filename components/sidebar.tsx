@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useAuth } from "@/contexts/auth-context";
 
 interface SidebarProps {
   user: {
@@ -29,10 +30,10 @@ interface SidebarProps {
 export function Sidebar({ user, isCollapsed, onToggleCollapse }: SidebarProps) {
   const router = useRouter();
   const pathname = usePathname();
+  const { logout } = useAuth();
 
-  const handleLogout = () => {
-    localStorage.removeItem("user");
-    sessionStorage.clear();
+  const handleLogout = async () => {
+    await logout();
     router.push("/");
   };
 
