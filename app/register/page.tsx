@@ -47,23 +47,30 @@ export default function RegisterPage() {
 
       try {
         const response = await fetch(
-          `${process.env.NEXT_PUBLIC_GITHUB_API_URL}/users/${formData.githubUsername}`
+          `${
+            process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"
+          }/api/register/validate-github`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              githubUsername: formData.githubUsername,
+            }),
+          }
         );
 
+        const result = await response.json();
+
         if (!response.ok) {
-          if (response.status === 404) {
-            setErrors((prev) => ({
-              ...prev,
-              githubUsername: "GitHub username does not exist",
-            }));
-          } else {
-            setErrors((prev) => ({
-              ...prev,
-              githubUsername: "Error validating GitHub username",
-            }));
-          }
+          setErrors((prev) => ({
+            ...prev,
+            githubUsername:
+              result.message || "Error validating GitHub username",
+          }));
         } else {
-          // Username exists, clear any existing error
+          // Username is valid, clear any existing error
           setErrors((prev) => {
             const newErrors = { ...prev };
             delete newErrors.githubUsername;
@@ -123,19 +130,92 @@ export default function RegisterPage() {
       newErrors.confirmPassword = "Passwords do not match";
     }
 
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    setErrors((prev) => ({ ...prev, ...newErrors }));
+
+    // Check if there are any existing GitHub username errors from async validation
+    const hasGithubError =
+      errors.githubUsername && errors.githubUsername !== "";
+
+    return Object.keys(newErrors).length === 0 && !hasGithubError;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!validateForm() || isCheckingGithub) return;
+    // Prevent submission if GitHub validation is in progress or failed
+    if (!validateForm() || isCheckingGithub || errors.githubUsername) {
+      if (errors.githubUsername) {
+        setErrors((prev) => ({
+          ...prev,
+          general:
+            "Please resolve GitHub username validation errors before proceeding.",
+        }));
+      }
+      return;
+    }
 
     setIsLoading(true);
 
-    // Simulate API call
-    setTimeout(() => {
+    try {
+      const response = await fetch(
+        `${
+          process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"
+        }/api/register`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            name: formData.name,
+            email: formData.email,
+            github_username: formData.githubUsername,
+            password: formData.password,
+            confirmPassword: formData.confirmPassword,
+          }),
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        // Handle validation errors from backend
+        if (result.message && result.message.includes("Validation error")) {
+          // Extract validation errors from the message
+          const errorMatch = result.message.match(/Validation error: ({.*})/);
+          if (errorMatch) {
+            try {
+              const validationErrors = JSON.parse(
+                errorMatch[1].replace(/'/g, '"')
+              );
+              const newErrors: Record<string, string> = {};
+
+              // Map backend field names to frontend field names
+              Object.keys(validationErrors).forEach((field) => {
+                const frontendField =
+                  field === "github_username" ? "githubUsername" : field;
+                newErrors[frontendField] = Array.isArray(
+                  validationErrors[field]
+                )
+                  ? validationErrors[field][0]
+                  : validationErrors[field];
+              });
+
+              setErrors(newErrors);
+            } catch (parseError) {
+              setErrors({ general: result.message });
+            }
+          } else {
+            setErrors({ general: result.message });
+          }
+        } else {
+          setErrors({ general: result.message || "Registration failed" });
+        }
+        setIsLoading(false);
+        return;
+      }
+
+      // Registration successful
       setSuccess(true);
       setIsLoading(false);
 
@@ -143,7 +223,11 @@ export default function RegisterPage() {
       setTimeout(() => {
         router.push("/");
       }, 2000);
-    }, 1000);
+    } catch (error) {
+      console.error("Registration error:", error);
+      setErrors({ general: "Network error. Please try again." });
+      setIsLoading(false);
+    }
   };
 
   const handleInputChange = (field: string, value: string) => {
@@ -198,6 +282,11 @@ export default function RegisterPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
+            {errors.general && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+                <p className="text-sm text-red-600">{errors.general}</p>
+              </div>
+            )}
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="name">Full Name</Label>
@@ -381,12 +470,16 @@ export default function RegisterPage() {
               <Button
                 type="submit"
                 className="w-full"
-                disabled={isLoading || isCheckingGithub}
+                disabled={
+                  isLoading || isCheckingGithub || !!errors.githubUsername
+                }
               >
                 {isLoading
                   ? "Creating Account..."
                   : isCheckingGithub
                   ? "Validating GitHub Username..."
+                  : errors.githubUsername
+                  ? "Fix GitHub Username First"
                   : "Create Account"}
               </Button>
             </form>
