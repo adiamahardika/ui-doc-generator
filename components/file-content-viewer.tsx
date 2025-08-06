@@ -1,466 +1,331 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { Copy, Download, Edit, Eye, FileText, MoreHorizontal } from "lucide-react"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { useState, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  Copy,
+  Download,
+  Edit,
+  Eye,
+  FileText,
+  MoreHorizontal,
+  Loader2,
+} from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { apiRequest } from "@/lib/auth";
 
 interface FileNode {
-  id: string
-  name: string
-  path: string
-  type: "file" | "directory"
-  language?: string
-  size?: number
-  extension?: string
+  id: string;
+  name: string;
+  path: string;
+  type: "file" | "directory";
+  language?: string;
+  size?: number;
+  extension?: string;
+  download_url?: string;
+  html_url?: string;
+  sha?: string;
+  content?: string;
+  encoding?: string;
 }
 
 interface FileContentViewerProps {
-  file: FileNode | null
-  onClose?: () => void
+  file: FileNode | null;
+  repository?: any;
+  currentBranch?: string;
+  onClose?: () => void;
 }
 
-export function FileContentViewer({ file, onClose }: FileContentViewerProps) {
-  const [viewMode, setViewMode] = useState<"code" | "blame">("code")
+export function FileContentViewer({
+  file,
+  repository,
+  currentBranch = "main",
+  onClose,
+}: FileContentViewerProps) {
+  const [viewMode, setViewMode] = useState<"code" | "blame">("code");
+  const [content, setContent] = useState<string>("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Load file content when file changes
+  useEffect(() => {
+    if (file && file.type === "file" && repository) {
+      loadFileContent();
+    } else {
+      setContent("");
+      setError(null);
+    }
+  }, [file, repository, currentBranch]);
+
+  const loadFileContent = async () => {
+    if (!file || !repository || file.type !== "file") return;
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      // Check if file is too large (GitHub API limit is 1MB for file contents)
+      if (file.size && file.size > 1024 * 1024) {
+        setError(
+          "File is too large to display (> 1MB). Use the download button to view the file."
+        );
+        setIsLoading(false);
+        return;
+      }
+
+      // Check if file is binary based on extension
+      const binaryExtensions = [
+        ".exe",
+        ".dll",
+        ".so",
+        ".dylib",
+        ".bin",
+        ".img",
+        ".iso",
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".gif",
+        ".bmp",
+        ".svg",
+        ".ico",
+        ".mp3",
+        ".mp4",
+        ".avi",
+        ".mov",
+        ".wav",
+        ".flac",
+        ".pdf",
+        ".doc",
+        ".docx",
+        ".xls",
+        ".xlsx",
+        ".ppt",
+        ".pptx",
+        ".zip",
+        ".tar",
+        ".gz",
+        ".rar",
+        ".7z",
+      ];
+
+      const fileExtension = file.extension?.toLowerCase() || "";
+      if (binaryExtensions.includes(fileExtension)) {
+        setError(
+          "Binary file cannot be displayed. Use the download button to view the file."
+        );
+        setIsLoading(false);
+        return;
+      }
+
+      // If we already have content, use it
+      if (file.content) {
+        const decodedContent =
+          file.encoding === "base64" ? atob(file.content) : file.content;
+        setContent(decodedContent);
+        setIsLoading(false);
+        return;
+      }
+
+      // If we have a download_url, fetch directly from GitHub
+      if (file.download_url) {
+        const response = await fetch(file.download_url);
+        if (response.ok) {
+          const textContent = await response.text();
+          setContent(textContent);
+          setIsLoading(false);
+          return;
+        }
+      }
+
+      // Otherwise, use our API
+      const queryParams = new URLSearchParams();
+      queryParams.append("path", file.path);
+      if (currentBranch && currentBranch !== "main") {
+        queryParams.append("branch", currentBranch);
+      }
+
+      // Add access token if available
+      const savedToken = sessionStorage.getItem("github_token");
+      if (savedToken) {
+        queryParams.append("access_token", savedToken);
+      }
+
+      const endpoint = `/api/github/repository/${encodeURIComponent(
+        repository.name
+      )}?${queryParams.toString()}`;
+
+      const response = await apiRequest(endpoint, {
+        method: "GET",
+      });
+
+      if (!response.ok) {
+        const errorData = await response
+          .json()
+          .catch(() => ({ message: "Failed to fetch file content" }));
+        throw new Error(errorData.message || "Failed to fetch file content");
+      }
+
+      const result = await response.json();
+
+      if (result.success && result.data) {
+        let fileContent = "";
+
+        if (result.data.content) {
+          // Decode base64 content if present
+          fileContent =
+            result.data.encoding === "base64"
+              ? atob(result.data.content)
+              : result.data.content;
+        } else if (result.data.download_url) {
+          // Fetch content from download URL
+          const contentResponse = await fetch(result.data.download_url);
+          if (contentResponse.ok) {
+            fileContent = await contentResponse.text();
+          } else {
+            throw new Error("Failed to fetch file content from GitHub");
+          }
+        } else {
+          throw new Error("No content available for this file");
+        }
+
+        setContent(fileContent);
+      } else {
+        throw new Error(result.message || "Failed to load file content");
+      }
+    } catch (error) {
+      console.error("Error loading file content:", error);
+      setError(
+        error instanceof Error ? error.message : "Failed to load file content"
+      );
+      setContent("");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   if (!file) {
     return (
       <div className="flex-1 flex items-center justify-center bg-gray-50 border-l border-gray-200">
         <div className="text-center">
           <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">Select a file to view</h3>
-          <p className="text-gray-600">Choose a file from the tree to see its contents here</p>
+          <h3 className="text-lg font-medium text-gray-900 mb-2">
+            Select a file to view
+          </h3>
+          <p className="text-gray-600">
+            Choose a file from the tree to see its contents here
+          </p>
         </div>
       </div>
-    )
+    );
   }
 
-  const getFileContent = (file: FileNode) => {
-    // Mock file content based on file type
-    const contents: Record<string, string> = {
-      ".tsx": `import React from 'react'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-
-interface AppProps {
-  title: string
-  children: React.ReactNode
-}
-
-export default function App({ title, children }: AppProps) {
-  const [isLoading, setIsLoading] = React.useState(false)
-
-  const handleClick = () => {
-    setIsLoading(true)
-    // Simulate async operation
-    setTimeout(() => {
-      setIsLoading(false)
-    }, 2000)
+  if (!file) {
+    return (
+      <div className="flex-1 flex items-center justify-center bg-gray-50 border-l border-gray-200">
+        <div className="text-center">
+          <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 mb-2">
+            Select a file to view
+          </h3>
+          <p className="text-gray-600">
+            Choose a file from the tree to see its contents here
+          </p>
+        </div>
+      </div>
+    );
   }
 
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <Card className="max-w-4xl mx-auto">
-        <CardHeader>
-          <CardTitle>{title}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Button onClick={handleClick} disabled={isLoading}>
-            {isLoading ? 'Loading...' : 'Click me'}
+  // Show loading state for files
+  if (file.type === "file" && isLoading) {
+    return (
+      <div className="flex-1 flex items-center justify-center bg-white border-l border-gray-200">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 text-blue-500 animate-spin mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 mb-2">
+            Loading file content...
+          </h3>
+          <p className="text-gray-600">Fetching {file.name} from GitHub</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show error state
+  if (file.type === "file" && error) {
+    return (
+      <div className="flex-1 flex items-center justify-center bg-white border-l border-gray-200">
+        <div className="text-center">
+          <FileText className="h-12 w-12 text-red-400 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 mb-2">
+            Failed to load file
+          </h3>
+          <p className="text-red-600 mb-4">{error}</p>
+          <Button onClick={loadFileContent} variant="outline" size="sm">
+            Try Again
           </Button>
-          {children}
-        </CardContent>
-      </Card>
-    </div>
-  )
-}`,
-      ".ts": `export interface User {
-  id: string
-  name: string
-  email: string
-  role: 'admin' | 'user' | 'moderator'
-  createdAt: Date
-  updatedAt: Date
-}
-
-export interface Repository {
-  id: string
-  name: string
-  description?: string
-  language: string
-  isPrivate: boolean
-  owner: User
-  collaborators: User[]
-}
-
-export const API_ENDPOINTS = {
-  USERS: '/api/users',
-  REPOSITORIES: '/api/repositories',
-  AUTH: '/api/auth',
-} as const
-
-export function formatDate(date: Date): string {
-  return new Intl.DateTimeFormat('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  }).format(date)
-}
-
-export async function fetchUser(id: string): Promise<User | null> {
-  try {
-    const response = await fetch(\`\${API_ENDPOINTS.USERS}/\${id}\`)
-    if (!response.ok) throw new Error('User not found')
-    return await response.json()
-  } catch (error) {
-    console.error('Error fetching user:', error)
-    return null
+        </div>
+      </div>
+    );
   }
-}`,
-      ".js": `const express = require('express')
-const cors = require('cors')
-const helmet = require('helmet')
 
-const app = express()
-const PORT = process.env.PORT || 3000
-
-// Middleware
-app.use(helmet())
-app.use(cors())
-app.use(express.json())
-app.use(express.urlencoded({ extended: true }))
-
-// Routes
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'OK', timestamp: new Date().toISOString() })
-})
-
-app.get('/api/users', async (req, res) => {
-  try {
-    // Mock user data
-    const users = [
-      { id: 1, name: 'John Doe', email: 'john@example.com' },
-      { id: 2, name: 'Jane Smith', email: 'jane@example.com' },
-    ]
-    res.json(users)
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
-
-app.listen(PORT, () => {
-  console.log(\`Server running on port \${PORT}\`)
-})`,
-      ".py": `import os
-import json
-from datetime import datetime
-from typing import List, Optional, Dict, Any
-
-class DatabaseManager:
-    def __init__(self, connection_string: str):
-        self.connection_string = connection_string
-        self.connection = None
-    
-    def connect(self) -> bool:
-        """Establish database connection"""
-        try:
-            # Mock connection logic
-            print(f"Connecting to database: {self.connection_string}")
-            self.connection = True
-            return True
-        except Exception as e:
-            print(f"Connection failed: {e}")
-            return False
-    
-    def execute_query(self, query: str, params: Optional[Dict] = None) -> List[Dict[str, Any]]:
-        """Execute SQL query and return results"""
-        if not self.connection:
-            raise Exception("No database connection")
-        
-        # Mock query execution
-        print(f"Executing query: {query}")
-        if params:
-            print(f"Parameters: {params}")
-        
-        # Return mock results
-        return [
-            {"id": 1, "name": "Sample Record", "created_at": datetime.now()},
-            {"id": 2, "name": "Another Record", "created_at": datetime.now()},
-        ]
-    
-    def close(self):
-        """Close database connection"""
-        if self.connection:
-            self.connection = None
-            print("Database connection closed")
-
-def main():
-    db = DatabaseManager("postgresql://localhost:5432/mydb")
-    if db.connect():
-        results = db.execute_query("SELECT * FROM users WHERE active = %(active)s", {"active": True})
-        print(json.dumps(results, indent=2, default=str))
-        db.close()
-
-if __name__ == "__main__":
-    main()`,
-      ".css": `/* Global Styles */
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
-  line-height: 1.6;
-  color: #333;
-  background-color: #f8f9fa;
-}
-
-/* Layout Components */
-.container {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 0 1rem;
-}
-
-.header {
-  background: #fff;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  position: sticky;
-  top: 0;
-  z-index: 100;
-}
-
-.nav {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1rem 0;
-}
-
-.nav-links {
-  display: flex;
-  list-style: none;
-  gap: 2rem;
-}
-
-.nav-link {
-  text-decoration: none;
-  color: #666;
-  font-weight: 500;
-  transition: color 0.2s ease;
-}
-
-.nav-link:hover {
-  color: #007bff;
-}
-
-/* Button Styles */
-.btn {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.5rem 1rem;
-  border: none;
-  border-radius: 0.375rem;
-  font-weight: 500;
-  text-decoration: none;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.btn-primary {
-  background-color: #007bff;
-  color: white;
-}
-
-.btn-primary:hover {
-  background-color: #0056b3;
-}
-
-/* Responsive Design */
-@media (max-width: 768px) {
-  .nav {
-    flex-direction: column;
-    gap: 1rem;
-  }
-  
-  .nav-links {
-    flex-direction: column;
-    gap: 1rem;
-  }
-}`,
-      ".md": `# Project Documentation
-
-## Overview
-
-This project is a comprehensive web application built with modern technologies to provide automated code documentation generation using Large Language Models (LLMs).
-
-## Features
-
-- **GitHub Integration**: Connect your GitHub repositories seamlessly
-- **Multi-file Selection**: Choose specific files for documentation generation
-- **Branch Support**: Work with different branches of your repository
-- **User Management**: Complete user authentication and authorization system
-- **Admin Dashboard**: Comprehensive admin panel for user and activity management
-
-## Getting Started
-
-### Prerequisites
-
-- Node.js 18+ 
-- npm or yarn
-- GitHub Personal Access Token
-
-### Installation
-
-1. Clone the repository:
-\`\`\`bash
-git clone https://github.com/your-username/ai-docs-generator.git
-cd ai-docs-generator
-\`\`\`
-
-2. Install dependencies:
-\`\`\`bash
-npm install
-\`\`\`
-
-3. Set up environment variables:
-\`\`\`bash
-cp .env.example .env.local
-\`\`\`
-
-4. Start the development server:
-\`\`\`bash
-npm run dev
-\`\`\`
-
-## Usage
-
-1. **Sign up** for a new account or **log in** to your existing account
-2. **Connect your GitHub** account by providing a Personal Access Token
-3. **Select a repository** from your GitHub account
-4. **Choose files** you want to generate documentation for
-5. **Generate documentation** using AI-powered analysis
-6. **Download** the generated documentation files
-
-## API Reference
-
-### Authentication
-
-All API endpoints require authentication via JWT tokens.
-
-### Endpoints
-
-- \`GET /api/repositories\` - Get user repositories
-- \`POST /api/generate\` - Generate documentation
-- \`GET /api/files/:repo/:branch\` - Get repository files
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.`,
-      ".json": `{
-  "name": "ai-docs-generator",
-  "version": "1.0.0",
-  "description": "Automated code documentation generation using LLMs",
-  "main": "index.js",
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint",
-    "type-check": "tsc --noEmit"
-  },
-  "dependencies": {
-    "next": "^14.0.0",
-    "react": "^18.0.0",
-    "react-dom": "^18.0.0",
-    "@types/node": "^20.0.0",
-    "@types/react": "^18.0.0",
-    "@types/react-dom": "^18.0.0",
-    "typescript": "^5.0.0",
-    "tailwindcss": "^3.3.0",
-    "lucide-react": "^0.263.1",
-    "class-variance-authority": "^0.7.0",
-    "clsx": "^2.0.0",
-    "tailwind-merge": "^1.14.0"
-  },
-  "devDependencies": {
-    "eslint": "^8.0.0",
-    "eslint-config-next": "^14.0.0",
-    "prettier": "^3.0.0",
-    "@tailwindcss/typography": "^0.5.0",
-    "autoprefixer": "^10.4.0",
-    "postcss": "^8.4.0"
-  },
-  "keywords": [
-    "documentation",
-    "ai",
-    "llm",
-    "github",
-    "automation",
-    "nextjs",
-    "react",
-    "typescript"
-  ],
-  "author": "Your Name",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/your-username/ai-docs-generator.git"
-  },
-  "bugs": {
-    "url": "https://github.com/your-username/ai-docs-generator/issues"
-  },
-  "homepage": "https://github.com/your-username/ai-docs-generator#readme"
-}`,
-    }
-
-    return contents[file.extension || ".txt"] || "// File content not available for preview"
+  // Show message for directories
+  if (file.type === "directory") {
+    return (
+      <div className="flex-1 flex items-center justify-center bg-gray-50 border-l border-gray-200">
+        <div className="text-center">
+          <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 mb-2">
+            Directory selected
+          </h3>
+          <p className="text-gray-600">
+            {file.name} is a directory. Select a file to view its contents.
+          </p>
+        </div>
+      </div>
+    );
   }
 
   const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return "0 Bytes"
-    const k = 1024
-    const sizes = ["Bytes", "KB", "MB", "GB"]
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return Number.parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i]
-  }
+    if (bytes === 0) return "0 Bytes";
+    const k = 1024;
+    const sizes = ["Bytes", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return (
+      Number.parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i]
+    );
+  };
 
   const getLineCount = (content: string) => {
-    return content.split("\n").length
-  }
+    return content.split("\n").length;
+  };
 
   const copyToClipboard = async () => {
     try {
-      await navigator.clipboard.writeText(getFileContent(file))
+      await navigator.clipboard.writeText(content);
       // You could add a toast notification here
     } catch (err) {
-      console.error("Failed to copy content:", err)
+      console.error("Failed to copy content:", err);
     }
-  }
+  };
 
   const downloadFile = () => {
-    const content = getFileContent(file)
-    const blob = new Blob([content], { type: "text/plain" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = file.name
-    a.click()
-    URL.revokeObjectURL(url)
-  }
+    const blob = new Blob([content], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = file.name;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
-  const content = getFileContent(file)
-  const lineCount = getLineCount(content)
+  const lineCount = getLineCount(content);
 
   return (
     <div className="flex-1 flex flex-col bg-white border-l border-gray-200">
@@ -470,7 +335,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
           <div className="flex items-center gap-2">
             <FileText className="h-5 w-5 text-gray-500" />
             <h2 className="text-lg font-semibold text-gray-900">{file.name}</h2>
-            {file.language && <Badge variant="secondary">{file.language}</Badge>}
+            {file.language && (
+              <Badge variant="secondary">{file.language}</Badge>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="sm" onClick={copyToClipboard}>
@@ -511,11 +378,19 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
         {/* View Mode Toggle */}
         <div className="flex items-center gap-2 mt-3">
-          <Button variant={viewMode === "code" ? "default" : "ghost"} size="sm" onClick={() => setViewMode("code")}>
+          <Button
+            variant={viewMode === "code" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setViewMode("code")}
+          >
             <Eye className="h-4 w-4 mr-1" />
             Code
           </Button>
-          <Button variant={viewMode === "blame" ? "default" : "ghost"} size="sm" onClick={() => setViewMode("blame")}>
+          <Button
+            variant={viewMode === "blame" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setViewMode("blame")}
+          >
             <Edit className="h-4 w-4 mr-1" />
             Blame
           </Button>
@@ -547,10 +422,12 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
         ) : (
           <div className="p-4 text-center text-gray-500">
             <p>Blame view is not available in this demo</p>
-            <p className="text-sm mt-2">This would show commit information for each line</p>
+            <p className="text-sm mt-2">
+              This would show commit information for each line
+            </p>
           </div>
         )}
       </div>
     </div>
-  )
+  );
 }

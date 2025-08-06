@@ -1,312 +1,370 @@
-"use client"
+"use client";
 
-import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Badge } from "@/components/ui/badge"
-import { Progress } from "@/components/ui/progress"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { ArrowLeft, Zap, CheckCircle, AlertCircle, Search } from "lucide-react"
-import { LayoutWrapper } from "@/components/layout-wrapper"
-import { FileTree } from "@/components/file-tree"
-import { FileContentViewer } from "@/components/file-content-viewer"
-import { BranchSelector } from "@/components/branch-selector"
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { ArrowLeft, Zap, CheckCircle, AlertCircle, Search } from "lucide-react";
+import { LayoutWrapper } from "@/components/layout-wrapper";
+import { FileTree } from "@/components/file-tree";
+import { FileContentViewer } from "@/components/file-content-viewer";
+import { BranchSelector } from "@/components/branch-selector";
+import { apiRequest } from "@/lib/auth";
 
 interface FileNode {
-  id: string
-  name: string
-  path: string
-  type: "file" | "directory"
-  children?: FileNode[]
-  language?: string
-  size?: number
-  extension?: string
+  id: string;
+  name: string;
+  path: string;
+  type: "file" | "directory";
+  children?: FileNode[];
+  language?: string;
+  size?: number;
+  extension?: string;
+  download_url?: string;
+  html_url?: string;
+  sha?: string;
+  content?: string;
+  encoding?: string;
+}
+
+interface GitHubFileContent {
+  name: string;
+  path: string;
+  sha: string;
+  size: number;
+  url: string;
+  html_url: string;
+  git_url: string;
+  download_url: string | null;
+  type: "file" | "dir";
+  content?: string;
+  encoding?: string;
 }
 
 export default function FilesPage() {
-  const [user, setUser] = useState<any>(null)
-  const [repository, setRepository] = useState<any>(null)
-  const [files, setFiles] = useState<FileNode[]>([])
-  const [filteredFiles, setFilteredFiles] = useState<FileNode[]>([])
-  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set())
-  const [selectedFile, setSelectedFile] = useState<FileNode | null>(null)
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set())
-  const [currentBranch, setCurrentBranch] = useState("main")
-  const [searchTerm, setSearchTerm] = useState("")
-  const [isLoading, setIsLoading] = useState(true)
-  const [isGenerating, setIsGenerating] = useState(false)
-  const [progress, setProgress] = useState(0)
-  const [notification, setNotification] = useState<{ type: "success" | "error"; message: string } | null>(null)
-  const router = useRouter()
+  const [user, setUser] = useState<any>(null);
+  const [repository, setRepository] = useState<any>(null);
+  const [files, setFiles] = useState<FileNode[]>([]);
+  const [filteredFiles, setFilteredFiles] = useState<FileNode[]>([]);
+  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
+  const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
+    new Set()
+  );
+  const [currentBranch, setCurrentBranch] = useState("main");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [notification, setNotification] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
+  const router = useRouter();
 
   useEffect(() => {
-    const userData = localStorage.getItem("user")
-    const repoData = sessionStorage.getItem("selected_repository")
+    const userData = localStorage.getItem("user");
+    const repoData = sessionStorage.getItem("selected_repository");
 
     if (!userData || !repoData) {
-      router.push("/dashboard")
-      return
+      router.push("/dashboard");
+      return;
     }
 
-    setUser(JSON.parse(userData))
-    setRepository(JSON.parse(repoData))
+    const parsedUser = JSON.parse(userData);
+    const parsedRepo = JSON.parse(repoData);
 
-    loadFiles()
-  }, [router, currentBranch])
+    setUser(parsedUser);
+    setRepository(parsedRepo);
+  }, [router]);
 
-  const loadFiles = () => {
-    setIsLoading(true)
-    setSelectedFile(null)
-    // Simulate loading hierarchical file structure
-    setTimeout(() => {
-      const mockFiles: FileNode[] = [
-        {
-          id: "1",
-          name: "src",
-          path: "src",
-          type: "directory",
-          children: [
-            {
-              id: "2",
-              name: "components",
-              path: "src/components",
-              type: "directory",
-              children: [
-                {
-                  id: "3",
-                  name: "App.tsx",
-                  path: "src/components/App.tsx",
-                  type: "file",
-                  language: "TypeScript",
-                  size: 2048,
-                  extension: ".tsx",
-                },
-                {
-                  id: "4",
-                  name: "Button.tsx",
-                  path: "src/components/Button.tsx",
-                  type: "file",
-                  language: "TypeScript",
-                  size: 1024,
-                  extension: ".tsx",
-                },
-                {
-                  id: "5",
-                  name: "Modal.tsx",
-                  path: "src/components/Modal.tsx",
-                  type: "file",
-                  language: "TypeScript",
-                  size: 1536,
-                  extension: ".tsx",
-                },
-              ],
-            },
-            {
-              id: "6",
-              name: "utils",
-              path: "src/utils",
-              type: "directory",
-              children: [
-                {
-                  id: "7",
-                  name: "helpers.js",
-                  path: "src/utils/helpers.js",
-                  type: "file",
-                  language: "JavaScript",
-                  size: 1536,
-                  extension: ".js",
-                },
-                {
-                  id: "8",
-                  name: "constants.ts",
-                  path: "src/utils/constants.ts",
-                  type: "file",
-                  language: "TypeScript",
-                  size: 512,
-                  extension: ".ts",
-                },
-                {
-                  id: "9",
-                  name: "api.ts",
-                  path: "src/utils/api.ts",
-                  type: "file",
-                  language: "TypeScript",
-                  size: 2048,
-                  extension: ".ts",
-                },
-              ],
-            },
-            {
-              id: "10",
-              name: "styles",
-              path: "src/styles",
-              type: "directory",
-              children: [
-                {
-                  id: "11",
-                  name: "globals.css",
-                  path: "src/styles/globals.css",
-                  type: "file",
-                  language: "CSS",
-                  size: 1024,
-                  extension: ".css",
-                },
-                {
-                  id: "12",
-                  name: "components.css",
-                  path: "src/styles/components.css",
-                  type: "file",
-                  language: "CSS",
-                  size: 768,
-                  extension: ".css",
-                },
-              ],
-            },
-            {
-              id: "13",
-              name: "index.ts",
-              path: "src/index.ts",
-              type: "file",
-              language: "TypeScript",
-              size: 256,
-              extension: ".ts",
-            },
-          ],
-        },
-        {
-          id: "14",
-          name: "backend",
-          path: "backend",
-          type: "directory",
-          children: [
-            {
-              id: "15",
-              name: "api.py",
-              path: "backend/api.py",
-              type: "file",
-              language: "Python",
-              size: 3072,
-              extension: ".py",
-            },
-            {
-              id: "16",
-              name: "models.py",
-              path: "backend/models.py",
-              type: "file",
-              language: "Python",
-              size: 1536,
-              extension: ".py",
-            },
-            {
-              id: "17",
-              name: "database.py",
-              path: "backend/database.py",
-              type: "file",
-              language: "Python",
-              size: 2048,
-              extension: ".py",
-            },
-          ],
-        },
-        {
-          id: "18",
-          name: "docs",
-          path: "docs",
-          type: "directory",
-          children: [
-            {
-              id: "19",
-              name: "README.md",
-              path: "docs/README.md",
-              type: "file",
-              language: "Markdown",
-              size: 2048,
-              extension: ".md",
-            },
-            {
-              id: "20",
-              name: "API.md",
-              path: "docs/API.md",
-              type: "file",
-              language: "Markdown",
-              size: 1536,
-              extension: ".md",
-            },
-          ],
-        },
-        {
-          id: "21",
-          name: "package.json",
-          path: "package.json",
-          type: "file",
-          language: "JSON",
-          size: 1024,
-          extension: ".json",
-        },
-        {
-          id: "22",
-          name: "tsconfig.json",
-          path: "tsconfig.json",
-          type: "file",
-          language: "JSON",
-          size: 512,
-          extension: ".json",
-        },
-        {
-          id: "23",
-          name: "README.md",
-          path: "README.md",
-          type: "file",
-          language: "Markdown",
-          size: 2048,
-          extension: ".md",
-        },
-      ]
+  // Clear notifications after 5 seconds
+  useEffect(() => {
+    if (notification) {
+      const timer = setTimeout(() => {
+        setNotification(null);
+      }, 5000);
 
-      setFiles(mockFiles)
-      setFilteredFiles(mockFiles)
-      // Auto-expand first level directories
-      setExpandedFolders(new Set(["src", "backend", "docs"]))
-      setIsLoading(false)
-    }, 1000)
-  }
+      return () => clearTimeout(timer);
+    }
+  }, [notification]);
+
+  // Separate effect for loading files when repository or branch changes
+  useEffect(() => {
+    if (repository) {
+      loadFiles();
+    }
+  }, [repository, currentBranch]);
+
+  const loadFiles = async (path: string = "") => {
+    if (!repository) return;
+
+    // setIsLoading(true);
+    setSelectedFile(null);
+
+    try {
+      const queryParams = new URLSearchParams();
+      if (path) queryParams.append("path", path);
+      if (currentBranch && currentBranch !== "main")
+        queryParams.append("branch", currentBranch);
+
+      // Add access token if available
+      const savedToken = sessionStorage.getItem("github_token");
+      if (savedToken) {
+        queryParams.append("access_token", savedToken);
+      }
+
+      const endpoint = `/api/github/repository/${encodeURIComponent(
+        repository.name
+      )}${queryParams.toString() ? `?${queryParams.toString()}` : ""}`;
+
+      const response = await apiRequest(endpoint, {
+        method: "GET",
+      });
+
+      if (!response.ok) {
+        const errorData = await response
+          .json()
+          .catch(() => ({ message: "Failed to fetch repository contents" }));
+        throw new Error(
+          errorData.message || "Failed to fetch repository contents"
+        );
+      }
+
+      const result = await response.json();
+
+      if (result.success && result.data) {
+        const transformedFiles = transformGitHubResponse(result.data, path);
+
+        if (path === "") {
+          // Root directory - set as main files
+          setFiles(transformedFiles);
+          setFilteredFiles(transformedFiles);
+          // Keep all folders collapsed by default
+          setExpandedFolders(new Set());
+        } else {
+          // Subdirectory - update the files tree
+          updateFilesWithSubdirectory(path, transformedFiles);
+        }
+      } else {
+        throw new Error(result.message || "Failed to load repository contents");
+      }
+    } catch (error) {
+      console.error("Error loading files:", error);
+      setNotification({
+        type: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Failed to load repository files",
+      });
+      // Fall back to empty state
+      setFiles([]);
+      setFilteredFiles([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const transformGitHubResponse = (
+    data: GitHubFileContent[],
+    basePath: string = ""
+  ): FileNode[] => {
+    return data.map((item, index) => {
+      const extension =
+        item.type === "file" ? getFileExtension(item.name) : undefined;
+      const language = extension
+        ? getLanguageFromExtension(extension)
+        : undefined;
+
+      return {
+        id: `${basePath}-${index}-${item.sha}`,
+        name: item.name,
+        path: item.path,
+        type: item.type === "dir" ? "directory" : "file",
+        size: item.size,
+        extension,
+        language,
+        download_url: item.download_url || undefined,
+        html_url: item.html_url,
+        sha: item.sha,
+        children: item.type === "dir" ? [] : undefined,
+      };
+    });
+  };
+
+  const getFileExtension = (filename: string): string => {
+    const lastDot = filename.lastIndexOf(".");
+    return lastDot > 0 ? filename.substring(lastDot) : "";
+  };
+
+  const getLanguageFromExtension = (extension: string): string => {
+    const languageMap: Record<string, string> = {
+      ".js": "JavaScript",
+      ".jsx": "JavaScript",
+      ".ts": "TypeScript",
+      ".tsx": "TypeScript",
+      ".py": "Python",
+      ".java": "Java",
+      ".cpp": "C++",
+      ".c": "C",
+      ".cs": "C#",
+      ".php": "PHP",
+      ".rb": "Ruby",
+      ".go": "Go",
+      ".rs": "Rust",
+      ".swift": "Swift",
+      ".kt": "Kotlin",
+      ".html": "HTML",
+      ".css": "CSS",
+      ".scss": "SCSS",
+      ".sass": "Sass",
+      ".less": "Less",
+      ".md": "Markdown",
+      ".json": "JSON",
+      ".xml": "XML",
+      ".yaml": "YAML",
+      ".yml": "YAML",
+      ".sql": "SQL",
+      ".sh": "Shell",
+      ".bash": "Bash",
+      ".dockerfile": "Dockerfile",
+      ".vue": "Vue",
+      ".svelte": "Svelte",
+    };
+    return languageMap[extension.toLowerCase()] || "Text";
+  };
+
+  const updateFilesWithSubdirectory = (
+    path: string,
+    subdirectoryFiles: FileNode[]
+  ) => {
+    const updateFileTree = (nodes: FileNode[]): FileNode[] => {
+      return nodes.map((node) => {
+        if (node.type === "directory" && node.path === path) {
+          return {
+            ...node,
+            children: subdirectoryFiles,
+          };
+        } else if (node.children) {
+          return {
+            ...node,
+            children: updateFileTree(node.children),
+          };
+        }
+        return node;
+      });
+    };
+
+    const updatedFiles = updateFileTree(files);
+    setFiles(updatedFiles);
+    setFilteredFiles(updatedFiles);
+  };
 
   const handleBranchChange = (branch: string) => {
-    setCurrentBranch(branch)
-    setSelectedFiles(new Set())
-    setExpandedFolders(new Set(["src", "backend", "docs"]))
-  }
+    setCurrentBranch(branch);
+    setSelectedFiles(new Set());
+    setExpandedFolders(new Set());
+    loadFiles(); // Reload files for the new branch
+  };
 
-  const handleToggleFolder = (path: string) => {
-    const newExpanded = new Set(expandedFolders)
+  const handleToggleFolder = async (path: string) => {
+    const newExpanded = new Set(expandedFolders);
     if (newExpanded.has(path)) {
-      newExpanded.delete(path)
+      newExpanded.delete(path);
     } else {
-      newExpanded.add(path)
-    }
-    setExpandedFolders(newExpanded)
-  }
+      newExpanded.add(path);
 
-  const handleFileClick = (file: FileNode) => {
-    setSelectedFile(file)
-  }
+      // Check if this directory's children are already loaded
+      const findDirectory = (
+        nodes: FileNode[],
+        targetPath: string
+      ): FileNode | null => {
+        for (const node of nodes) {
+          if (node.path === targetPath) return node;
+          if (node.children) {
+            const found = findDirectory(node.children, targetPath);
+            if (found) return found;
+          }
+        }
+        return null;
+      };
+
+      const directory = findDirectory(files, path);
+      if (
+        directory &&
+        directory.type === "directory" &&
+        (!directory.children || directory.children.length === 0)
+      ) {
+        // Load directory contents
+        await loadFiles(path);
+      }
+    }
+    setExpandedFolders(newExpanded);
+  };
+
+  const handleFileClick = async (file: FileNode) => {
+    setSelectedFile(file);
+
+    // If it's a file and we don't have content yet, fetch it
+    if (file.type === "file" && !file.download_url) {
+      try {
+        const queryParams = new URLSearchParams();
+        queryParams.append("path", file.path);
+        if (currentBranch && currentBranch !== "main") {
+          queryParams.append("branch", currentBranch);
+        }
+
+        // Add access token if available
+        const savedToken = sessionStorage.getItem("github_token");
+        if (savedToken) {
+          queryParams.append("access_token", savedToken);
+        }
+
+        const endpoint = `/api/github/repository/${encodeURIComponent(
+          repository.name
+        )}?${queryParams.toString()}`;
+
+        const response = await apiRequest(endpoint, {
+          method: "GET",
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          if (result.success && result.data) {
+            // Update the selected file with content
+            setSelectedFile({
+              ...file,
+              download_url: result.data.download_url,
+              content: result.data.content,
+              encoding: result.data.encoding,
+            });
+          }
+        }
+      } catch (error) {
+        console.error("Error loading file content:", error);
+      }
+    }
+  };
 
   const getAllFiles = (nodes: FileNode[]): FileNode[] => {
-    let allFiles: FileNode[] = []
+    let allFiles: FileNode[] = [];
     nodes.forEach((node) => {
       if (node.type === "file") {
-        allFiles.push(node)
+        allFiles.push(node);
       } else if (node.children) {
-        allFiles = allFiles.concat(getAllFiles(node.children))
+        allFiles = allFiles.concat(getAllFiles(node.children));
       }
-    })
-    return allFiles
-  }
+    });
+    return allFiles;
+  };
 
   const searchFiles = (nodes: FileNode[], term: string): FileNode[] => {
-    const results: FileNode[] = []
+    const results: FileNode[] = [];
 
     nodes.forEach((node) => {
       if (node.type === "file") {
@@ -314,92 +372,93 @@ export default function FilesPage() {
           node.name.toLowerCase().includes(term.toLowerCase()) ||
           node.path.toLowerCase().includes(term.toLowerCase())
         ) {
-          results.push(node)
+          results.push(node);
         }
       } else if (node.children) {
-        const childResults = searchFiles(node.children, term)
-        results.push(...childResults)
+        const childResults = searchFiles(node.children, term);
+        results.push(...childResults);
       }
-    })
+    });
 
-    return results
-  }
+    return results;
+  };
 
   useEffect(() => {
     if (searchTerm) {
-      const searchResults = searchFiles(files, searchTerm)
-      setFilteredFiles(searchResults)
+      const searchResults = searchFiles(files, searchTerm);
+      setFilteredFiles(searchResults);
     } else {
-      setFilteredFiles(files)
+      setFilteredFiles(files);
     }
-  }, [searchTerm, files])
+  }, [searchTerm, files]);
 
   const handleFileSelect = (filePath: string, checked: boolean) => {
-    const newSelected = new Set(selectedFiles)
+    const newSelected = new Set(selectedFiles);
     if (checked) {
-      newSelected.add(filePath)
+      newSelected.add(filePath);
     } else {
-      newSelected.delete(filePath)
+      newSelected.delete(filePath);
     }
-    setSelectedFiles(newSelected)
-  }
+    setSelectedFiles(newSelected);
+  };
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
-      const allFiles = getAllFiles(files)
-      const allFilePaths = allFiles.map((file) => file.path)
-      setSelectedFiles(new Set(allFilePaths))
+      const allFiles = getAllFiles(files);
+      const allFilePaths = allFiles.map((file) => file.path);
+      setSelectedFiles(new Set(allFilePaths));
     } else {
-      setSelectedFiles(new Set())
+      setSelectedFiles(new Set());
     }
-  }
+  };
 
   const generateDocumentation = async () => {
     if (selectedFiles.size === 0) {
       setNotification({
         type: "error",
         message: "Please select at least one file to generate documentation.",
-      })
-      return
+      });
+      return;
     }
 
-    setIsGenerating(true)
-    setProgress(0)
-    setNotification(null)
+    setIsGenerating(true);
+    setProgress(0);
+    setNotification(null);
 
     // Simulate documentation generation with progress
-    const totalFiles = selectedFiles.size
+    const totalFiles = selectedFiles.size;
 
     for (let i = 0; i < totalFiles; i++) {
-      await new Promise((resolve) => setTimeout(resolve, 1500)) // Simulate processing time
-      setProgress(((i + 1) / totalFiles) * 100)
+      await new Promise((resolve) => setTimeout(resolve, 1500)); // Simulate processing time
+      setProgress(((i + 1) / totalFiles) * 100);
     }
 
     // Simulate download
     setTimeout(() => {
-      setIsGenerating(false)
+      setIsGenerating(false);
       setNotification({
         type: "success",
         message: `Documentation generated successfully for ${totalFiles} files! Download started automatically.`,
-      })
+      });
 
       // Create a mock download
-      const link = document.createElement("a")
-      link.href = "data:text/plain;charset=utf-8,Mock documentation files generated"
-      link.download = `${repository.name}-${currentBranch}-documentation.zip`
-      link.click()
+      const link = document.createElement("a");
+      link.href =
+        "data:text/plain;charset=utf-8,Mock documentation files generated";
+      link.download = `${repository.name}-${currentBranch}-documentation.zip`;
+      link.click();
 
       // Clear selection after successful generation
-      setSelectedFiles(new Set())
-    }, 500)
-  }
+      setSelectedFiles(new Set());
+    }, 500);
+  };
 
   if (!user || !repository) {
-    return <div>Loading...</div>
+    return <div>Loading...</div>;
   }
 
-  const allFiles = getAllFiles(files)
-  const totalFiles = allFiles.length
+  const allFiles = getAllFiles(files);
+  const totalFiles = allFiles.length;
 
   return (
     <LayoutWrapper user={user}>
@@ -409,22 +468,26 @@ export default function FilesPage() {
           <div className="container mx-auto">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-4">
-                <Button variant="ghost" onClick={() => router.push("/dashboard")}>
+                <Button
+                  variant="ghost"
+                  onClick={() => router.push("/dashboard")}
+                >
                   <ArrowLeft className="h-4 w-4 mr-2" />
                   Back to Dashboard
                 </Button>
                 <div>
                   <div className="flex items-center gap-3 mb-1">
-                    <h1 className="text-2xl font-bold text-gray-900">{repository.name}</h1>
+                    <h1 className="text-2xl font-bold text-gray-900">
+                      {repository.name}
+                    </h1>
                     <Badge variant="secondary">{repository.language}</Badge>
                   </div>
-                  <p className="text-gray-600 text-sm">{repository.description || "Repository file browser"}</p>
+                  <p className="text-gray-600 text-sm">
+                    {repository.description || "Repository file browser"}
+                  </p>
                 </div>
               </div>
               <div className="flex items-center gap-4">
-                <span className="text-sm text-gray-600">
-                  {selectedFiles.size} of {totalFiles} selected
-                </span>
                 <Button
                   onClick={generateDocumentation}
                   disabled={selectedFiles.size === 0 || isGenerating}
@@ -446,7 +509,11 @@ export default function FilesPage() {
             </div>
 
             {/* Branch Selector */}
-            <BranchSelector currentBranch={currentBranch} onBranchChange={handleBranchChange} repository={repository} />
+            <BranchSelector
+              currentBranch={currentBranch}
+              onBranchChange={handleBranchChange}
+              repository={repository}
+            />
           </div>
         </div>
 
@@ -454,14 +521,24 @@ export default function FilesPage() {
         {notification && (
           <div className="container mx-auto px-4 pt-4">
             <Alert
-              className={`${notification.type === "success" ? "border-green-500 bg-green-50" : "border-red-500 bg-red-50"}`}
+              className={`${
+                notification.type === "success"
+                  ? "border-green-500 bg-green-50"
+                  : "border-red-500 bg-red-50"
+              }`}
             >
               {notification.type === "success" ? (
                 <CheckCircle className="h-4 w-4 text-green-600" />
               ) : (
                 <AlertCircle className="h-4 w-4 text-red-600" />
               )}
-              <AlertDescription className={notification.type === "success" ? "text-green-800" : "text-red-800"}>
+              <AlertDescription
+                className={
+                  notification.type === "success"
+                    ? "text-green-800"
+                    : "text-red-800"
+                }
+              >
                 {notification.message}
               </AlertDescription>
             </Alert>
@@ -476,11 +553,14 @@ export default function FilesPage() {
                 <span className="text-sm font-medium text-blue-900">
                   Generating documentation for {selectedFiles.size} files...
                 </span>
-                <span className="text-sm text-blue-700">{Math.round(progress)}%</span>
+                <span className="text-sm text-blue-700">
+                  {Math.round(progress)}%
+                </span>
               </div>
               <Progress value={progress} className="h-2" />
               <p className="text-xs text-blue-600 mt-2">
-                Using GPT-4 to analyze code and generate comprehensive documentation
+                Using GPT-4 to analyze code and generate comprehensive
+                documentation
               </p>
             </div>
           </div>
@@ -505,16 +585,15 @@ export default function FilesPage() {
                 <div className="flex items-center space-x-2">
                   <Checkbox
                     id="select-all"
-                    checked={totalFiles > 0 && selectedFiles.size === totalFiles}
+                    checked={
+                      totalFiles > 0 && selectedFiles.size === totalFiles
+                    }
                     onCheckedChange={handleSelectAll}
                   />
                   <label htmlFor="select-all" className="text-sm font-medium">
                     Select All
                   </label>
                 </div>
-                <Badge variant="outline" className="text-xs">
-                  {totalFiles} files
-                </Badge>
               </div>
             </div>
 
@@ -523,7 +602,10 @@ export default function FilesPage() {
               {isLoading ? (
                 <div className="p-4 space-y-3">
                   {[...Array(8)].map((_, i) => (
-                    <div key={i} className="flex items-center space-x-3 animate-pulse">
+                    <div
+                      key={i}
+                      className="flex items-center space-x-3 animate-pulse"
+                    >
                       <div className="w-4 h-4 bg-gray-200 rounded"></div>
                       <div className="flex-1">
                         <div className="h-4 bg-gray-200 rounded mb-1"></div>
@@ -549,10 +631,14 @@ export default function FilesPage() {
                       >
                         <Checkbox
                           checked={selectedFiles.has(file.path)}
-                          onCheckedChange={(checked) => handleFileSelect(file.path, checked as boolean)}
+                          onCheckedChange={(checked) =>
+                            handleFileSelect(file.path, checked as boolean)
+                          }
                           onClick={(e) => e.stopPropagation()}
                         />
-                        <span className="text-sm text-gray-700 truncate">{file.path}</span>
+                        <span className="text-sm text-gray-700 truncate">
+                          {file.path}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -574,9 +660,13 @@ export default function FilesPage() {
           </div>
 
           {/* Right Pane - File Content */}
-          <FileContentViewer file={selectedFile} />
+          <FileContentViewer
+            file={selectedFile}
+            repository={repository}
+            currentBranch={currentBranch}
+          />
         </div>
       </div>
     </LayoutWrapper>
-  )
+  );
 }
