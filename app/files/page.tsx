@@ -16,78 +16,75 @@ import { BranchSelector } from "@/components/branch-selector";
 import { apiRequest } from "@/lib/auth";
 
 // PDF and ZIP utilities
+import { generateAdvancedPDF } from "@/lib/pdf-generator";
+
 const generatePDFFromMarkdown = async (
   markdown: string,
   fileName: string
 ): Promise<Blob> => {
-  // Using jsPDF with markdown-to-html conversion
-  const { jsPDF } = await import("jspdf");
+  try {
+    return await generateAdvancedPDF(markdown, fileName);
+  } catch (error) {
+    console.error("Error generating advanced PDF:", error);
+    // Fallback to simple jsPDF if advanced fails
+    const { jsPDF } = await import("jspdf");
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const margin = 20;
+    const maxWidth = pageWidth - margin * 2;
 
-  const doc = new jsPDF();
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const margin = 20;
-  const maxWidth = pageWidth - margin * 2;
+    doc.setFontSize(16);
+    doc.setFont("helvetica", "bold");
 
-  // Add title
-  doc.setFontSize(16);
-  doc.setFont(undefined, "bold");
-  doc.text(`Documentation: ${fileName}`, margin, 30);
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
 
-  // Add content (simplified markdown to text conversion)
-  doc.setFontSize(10);
-  doc.setFont(undefined, "normal");
+    const lines = markdown.split("\n");
+    let yPosition = 50;
+    const lineHeight = 6;
 
-  // Simple markdown processing - convert to plain text with basic formatting
-  const lines = markdown.split("\n");
-  let yPosition = 50;
-  const lineHeight = 6;
-
-  for (const line of lines) {
-    if (yPosition > doc.internal.pageSize.getHeight() - margin) {
-      doc.addPage();
-      yPosition = margin;
-    }
-
-    // Handle different markdown elements
-    let processedLine = line;
-    let fontSize = 10;
-    let fontStyle: "normal" | "bold" = "normal";
-
-    if (line.startsWith("# ")) {
-      processedLine = line.substring(2);
-      fontSize = 14;
-      fontStyle = "bold";
-    } else if (line.startsWith("## ")) {
-      processedLine = line.substring(3);
-      fontSize = 12;
-      fontStyle = "bold";
-    } else if (line.startsWith("### ")) {
-      processedLine = line.substring(4);
-      fontSize = 11;
-      fontStyle = "bold";
-    } else if (line.startsWith("**") && line.endsWith("**")) {
-      processedLine = line.substring(2, line.length - 2);
-      fontStyle = "bold";
-    }
-
-    doc.setFontSize(fontSize);
-    doc.setFont(undefined, fontStyle);
-
-    // Split long lines
-    const splitLines = doc.splitTextToSize(processedLine, maxWidth);
-    for (const splitLine of splitLines) {
+    for (const line of lines) {
       if (yPosition > doc.internal.pageSize.getHeight() - margin) {
         doc.addPage();
         yPosition = margin;
       }
-      doc.text(splitLine, margin, yPosition);
-      yPosition += lineHeight;
+
+      let processedLine = line;
+      let fontSize = 10;
+      let fontStyle: "normal" | "bold" = "normal";
+
+      if (line.startsWith("# ")) {
+        processedLine = line.substring(2);
+        fontSize = 14;
+        fontStyle = "bold";
+      } else if (line.startsWith("## ")) {
+        processedLine = line.substring(3);
+        fontSize = 12;
+        fontStyle = "bold";
+      } else if (line.startsWith("### ")) {
+        processedLine = line.substring(4);
+        fontSize = 11;
+        fontStyle = "bold";
+      }
+
+      doc.setFontSize(fontSize);
+      doc.setFont("helvetica", fontStyle);
+
+      const splitLines = doc.splitTextToSize(processedLine, maxWidth);
+      for (const splitLine of splitLines) {
+        if (yPosition > doc.internal.pageSize.getHeight() - margin) {
+          doc.addPage();
+          yPosition = margin;
+        }
+        doc.text(splitLine, margin, yPosition);
+        yPosition += lineHeight;
+      }
+
+      yPosition += 2;
     }
 
-    yPosition += 2; // Extra spacing between paragraphs
+    return new Blob([doc.output("blob")], { type: "application/pdf" });
   }
-
-  return new Blob([doc.output("blob")], { type: "application/pdf" });
 };
 
 const createZipWithPDFs = async (
@@ -97,14 +94,19 @@ const createZipWithPDFs = async (
   const zip = new JSZip();
 
   for (const { fileName, pdf } of pdfs) {
-    const pdfName = fileName.replace(/\.[^/.]+$/, "") + "_documentation.pdf";
+    const path = fileName.replace(".", "_").split("/");
+    let name = `${path[path.length - 1]}`;
+    if (path.length > 1) {
+      name = `${path[path.length - 2]}_${path[path.length - 1]}`;
+    }
+    const pdfName = name + ".pdf";
     zip.file(pdfName, pdf);
   }
 
   return await zip.generateAsync({ type: "blob" });
 };
 
-const downloadFile = (blob: Blob, fileName: string, mimeType: string) => {
+const downloadFile = (blob: Blob, fileName: string) => {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -660,14 +662,18 @@ export default function FilesPage() {
       if (pdfs.length === 1) {
         // Single file - direct PDF download
         const { fileName, pdf } = pdfs[0];
-        const pdfName =
-          fileName.replace(/\.[^/.]+$/, "") + "_documentation.pdf";
-        downloadFile(pdf, pdfName, "application/pdf");
+        const path = fileName.replace(".", "_").split("/");
+        let name = `${path[path.length - 1]}`;
+        if (path.length > 1) {
+          name = `${path[path.length - 2]}_${path[path.length - 1]}`;
+        }
+        const pdfName = name + ".pdf";
+        downloadFile(pdf, pdfName);
       } else {
         // Multiple files - create ZIP
         const zip = await createZipWithPDFs(pdfs);
-        const zipName = `${repository.name}-${currentBranch}-documentation.zip`;
-        downloadFile(zip, zipName, "application/zip");
+        const zipName = `${repository.name}_${currentBranch}.zip`;
+        downloadFile(zip, zipName);
       }
 
       setProgress(100);
