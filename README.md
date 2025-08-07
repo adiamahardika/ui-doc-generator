@@ -114,11 +114,23 @@ frontend/
 
 ### **Core Framework**
 
+<<<<<<< HEAD
+
+=======
+
+> > > > > > > 72fdbe0c9efd13d28cac75c53daffb070b82ce90
+
 - **Next.js 15.2.4** - React framework with App Router
 - **React 19** - UI library with latest features
 - **TypeScript 5** - Type safety and developer experience
 
 ### **Styling & UI**
+
+<<<<<<< HEAD
+
+=======
+
+> > > > > > > 72fdbe0c9efd13d28cac75c53daffb070b82ce90
 
 - **Tailwind CSS 3.4.17** - Utility-first CSS framework
 - **shadcn/ui** - High-quality component library
@@ -128,11 +140,23 @@ frontend/
 
 ### **State Management**
 
+<<<<<<< HEAD
+
+=======
+
+> > > > > > > 72fdbe0c9efd13d28cac75c53daffb070b82ce90
+
 - **React Context** - Authentication and global state
 - **React Hook Form** - Form handling and validation
 - **Zod** - Schema validation
 
 ### **Document Processing**
+
+<<<<<<< HEAD
+
+=======
+
+> > > > > > > 72fdbe0c9efd13d28cac75c53daffb070b82ce90
 
 - **@react-pdf/renderer** - PDF generation
 - **jsPDF** - Fallback PDF generation
@@ -140,6 +164,12 @@ frontend/
 - **react-markdown** - Markdown rendering
 
 ### **Development Tools**
+
+<<<<<<< HEAD
+
+=======
+
+> > > > > > > 72fdbe0c9efd13d28cac75c53daffb070b82ce90
 
 - **ESLint** - Code linting
 - **Autoprefixer** - CSS vendor prefixes
@@ -250,11 +280,23 @@ The frontend communicates with the backend through RESTful APIs:
 
 ### Authentication Endpoints
 
+<<<<<<< HEAD
+
+=======
+
+> > > > > > > 72fdbe0c9efd13d28cac75c53daffb070b82ce90
+
 - `POST /api/auth/login` - User login
 - `POST /api/auth/refresh` - Token refresh
 - `POST /api/register` - User registration
 
 ### GitHub Endpoints
+
+<<<<<<< HEAD
+
+=======
+
+> > > > > > > 72fdbe0c9efd13d28cac75c53daffb070b82ce90
 
 - `GET /api/github/repositories` - Fetch user repositories
 - `GET /api/github/repository/{name}` - Get repository details
@@ -262,17 +304,35 @@ The frontend communicates with the backend through RESTful APIs:
 
 ### Documentation Endpoints
 
+<<<<<<< HEAD
+
+=======
+
+> > > > > > > 72fdbe0c9efd13d28cac75c53daffb070b82ce90
+
 - `POST /api/openai/generate-documentation` - Generate documentation
 
 ## Environment Configuration
 
 ### Development
 
+<<<<<<< HEAD
+
+=======
+
+> > > > > > > 72fdbe0c9efd13d28cac75c53daffb070b82ce90
+
 - Hot reload enabled
 - Source maps for debugging
 - Verbose error messages
 
 ### Production
+
+<<<<<<< HEAD
+
+=======
+
+> > > > > > > 72fdbe0c9efd13d28cac75c53daffb070b82ce90
 
 - Optimized builds
 - Minified assets
@@ -376,14 +436,24 @@ npm start
 ### Common Issues
 
 1. **API Connection Errors**
+   <<<<<<< HEAD
 
-   - Check `NEXT_PUBLIC_API_URL` in `.env.local`
-   - Ensure backend server is running
+=======
+
+> > > > > > > 72fdbe0c9efd13d28cac75c53daffb070b82ce90
+
+- Check `NEXT_PUBLIC_API_URL` in `.env.local`
+- Ensure backend server is running
 
 2. **GitHub Integration Issues**
+   <<<<<<< HEAD
 
-   - Verify GitHub token permissions
-   - Check token expiration
+=======
+
+> > > > > > > 72fdbe0c9efd13d28cac75c53daffb070b82ce90
+
+- Verify GitHub token permissions
+- Check token expiration
 
 3. **Build Errors**
    - Clear `.next` directory
