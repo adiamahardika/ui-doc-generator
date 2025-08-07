@@ -93,9 +93,6 @@ export function BranchSelector({
     fetchBranches();
   };
 
-  const currentBranchData =
-    branches.find((b) => b.name === currentBranch) || branches[0];
-
   return (
     <div className="flex items-center gap-3">
       <DropdownMenu>
@@ -174,18 +171,6 @@ export function BranchSelector({
           </div>
         </DropdownMenuContent>
       </DropdownMenu>
-
-      <div className="text-sm text-gray-600">
-        <span className="font-medium">{currentBranch}</span>
-        {currentBranchData?.commit && (
-          <>
-            <span className="mx-2">•</span>
-            <code className="bg-gray-100 px-1 rounded text-xs">
-              {currentBranchData.commit.sha.substring(0, 7)}
-            </code>
-          </>
-        )}
-      </div>
     </div>
   );
 }

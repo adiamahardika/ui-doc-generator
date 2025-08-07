@@ -8,14 +8,25 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { ArrowLeft, Zap, CheckCircle, AlertCircle, Search } from "lucide-react";
+import {
+  ArrowLeft,
+  Zap,
+  CheckCircle,
+  AlertCircle,
+  Search,
+  Key,
+  Clock,
+  X,
+  Check,
+} from "lucide-react";
 import { LayoutWrapper } from "@/components/layout-wrapper";
 import { FileTree } from "@/components/file-tree";
 import { FileContentViewer } from "@/components/file-content-viewer";
 import { BranchSelector } from "@/components/branch-selector";
+import { GitHubTokenDialog } from "@/components/github-token-dialog";
 import { apiRequest } from "@/lib/auth";
 import { useAuth } from "@/contexts/auth-context";
-import { getGitHubToken } from "@/lib/github-token";
+import { getGitHubToken, getGitHubTokenData } from "@/lib/github-token";
 
 // PDF and ZIP utilities
 import { generateAdvancedPDF } from "@/lib/pdf-generator";
@@ -172,6 +183,13 @@ export default function FilesPage() {
     type: "success" | "error";
     message: string;
   } | null>(null);
+
+  // GitHub token state
+  const [githubToken, setGithubToken] = useState("");
+  const [tokenExpiresAt, setTokenExpiresAt] = useState<number | null>(null);
+  const [tokenExpired, setTokenExpired] = useState(false);
+  const [isTokenDialogOpen, setIsTokenDialogOpen] = useState(false);
+
   const router = useRouter();
   const { isAuthenticated, isLoading: authLoading } = useAuth();
 
@@ -199,6 +217,49 @@ export default function FilesPage() {
     setRepository(parsedRepo);
   }, [router, authLoading, isAuthenticated]);
 
+  // Initialize GitHub token state
+  useEffect(() => {
+    const tokenData = getGitHubTokenData();
+    const token = getGitHubToken();
+
+    if (tokenData && token) {
+      // Check if it's a logout-only token (expiresAt will be null)
+      if (
+        tokenData.expiresAt === null ||
+        tokenData.expirationMode === "logout"
+      ) {
+        // Logout-only token, use it without expiration
+        setGithubToken(token);
+        setTokenExpiresAt(null);
+        setTokenExpired(false);
+      } else {
+        // Check if token has expired
+        if (Date.now() > tokenData.expiresAt) {
+          // Token has expired, remove it
+          sessionStorage.removeItem("github_token");
+          sessionStorage.removeItem("github_token_timeout");
+          setGithubToken("");
+          setTokenExpiresAt(null);
+          setTokenExpired(true);
+        } else {
+          setGithubToken(token);
+          setTokenExpiresAt(tokenData.expiresAt);
+          setTokenExpired(false);
+        }
+      }
+    } else if (token) {
+      // Old format token (string), use it but treat as no expiration
+      setGithubToken(token);
+      setTokenExpiresAt(null);
+      setTokenExpired(false);
+    } else {
+      // No token
+      setGithubToken("");
+      setTokenExpiresAt(null);
+      setTokenExpired(false);
+    }
+  }, []);
+
   // Clear notifications after 5 seconds
   useEffect(() => {
     if (notification) {
@@ -216,6 +277,93 @@ export default function FilesPage() {
       loadFiles();
     }
   }, [repository, currentBranch]);
+
+  // Helper function to get time remaining for token expiration
+  const getTimeRemaining = (expiresAt: number) => {
+    const now = Date.now();
+    const remaining = expiresAt - now;
+
+    if (remaining <= 0) return "Expired";
+
+    const minutes = Math.floor(remaining / (1000 * 60));
+    const hours = Math.floor(minutes / 60);
+
+    if (hours > 0) {
+      const remainingMinutes = minutes % 60;
+      return `${hours}h ${remainingMinutes}m`;
+    } else {
+      return `${minutes}m`;
+    }
+  };
+
+  // Event listeners for GitHub token updates
+  useEffect(() => {
+    const handleTokenUpdate = (event: CustomEvent) => {
+      const { token, expiresAt } = event.detail;
+      setGithubToken(token);
+      setTokenExpiresAt(expiresAt);
+      setTokenExpired(false);
+    };
+
+    const handleTokenRemove = () => {
+      setGithubToken("");
+      setTokenExpiresAt(null);
+      setTokenExpired(false);
+    };
+
+    const handleTokenExpired = () => {
+      setGithubToken("");
+      setTokenExpiresAt(null);
+      setTokenExpired(true);
+    };
+
+    window.addEventListener(
+      "github-token-updated",
+      handleTokenUpdate as EventListener
+    );
+    window.addEventListener(
+      "github-token-removed",
+      handleTokenRemove as EventListener
+    );
+    window.addEventListener(
+      "github-token-expired",
+      handleTokenExpired as EventListener
+    );
+
+    return () => {
+      window.removeEventListener(
+        "github-token-updated",
+        handleTokenUpdate as EventListener
+      );
+      window.removeEventListener(
+        "github-token-removed",
+        handleTokenRemove as EventListener
+      );
+      window.removeEventListener(
+        "github-token-expired",
+        handleTokenExpired as EventListener
+      );
+    };
+  }, []);
+
+  // Timer to update expiration countdown
+  useEffect(() => {
+    if (!tokenExpiresAt || tokenExpired) return;
+
+    const interval = setInterval(() => {
+      if (Date.now() > tokenExpiresAt) {
+        // Token has expired
+        sessionStorage.removeItem("github_token");
+        sessionStorage.removeItem("github_token_timeout");
+        setGithubToken("");
+        setTokenExpiresAt(null);
+        setTokenExpired(true);
+        clearInterval(interval);
+      }
+    }, 30000); // Check every 30 seconds
+
+    return () => clearInterval(interval);
+  }, [tokenExpiresAt, tokenExpired]);
 
   const loadFiles = async (path: string = "") => {
     if (!repository) return;
@@ -760,6 +908,64 @@ export default function FilesPage() {
                   </p>
                 </div>
               </div>
+
+              {/* GitHub Token Status */}
+              <div className="flex items-center gap-2">
+                {githubToken && tokenExpiresAt && !tokenExpired && (
+                  <Badge
+                    variant="outline"
+                    className="text-xs bg-yellow-50 text-yellow-800 border-yellow-200"
+                  >
+                    <Clock className="h-3 w-3 mr-1" />
+                    Expires in {getTimeRemaining(tokenExpiresAt)}
+                  </Badge>
+                )}
+                {githubToken && !tokenExpiresAt && !tokenExpired && (
+                  <Badge
+                    variant="outline"
+                    className="text-xs bg-blue-50 text-blue-800 border-blue-200"
+                  >
+                    <Key className="h-3 w-3 mr-1" />
+                    Active until logout
+                  </Badge>
+                )}
+                {tokenExpired && (
+                  <Badge
+                    variant="outline"
+                    className="text-xs bg-red-50 text-red-800 border-red-200"
+                  >
+                    <X className="h-3 w-3 mr-1" />
+                    Token Removed
+                  </Badge>
+                )}
+                <Button
+                  variant="outline"
+                  onClick={() => setIsTokenDialogOpen(true)}
+                  className={`flex items-center gap-2 ${
+                    githubToken
+                      ? "border-green-500 bg-green-50 text-green-700 hover:bg-green-100"
+                      : ""
+                  }`}
+                >
+                  {githubToken ? (
+                    <Check className="h-4 w-4" />
+                  ) : (
+                    <Key className="h-4 w-4" />
+                  )}
+                  {githubToken ? "Token Connected" : "Add GitHub Token"}
+                </Button>
+              </div>
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                {/* Branch Selector */}
+                <BranchSelector
+                  currentBranch={currentBranch}
+                  onBranchChange={handleBranchChange}
+                  repository={repository}
+                />
+              </div>
+
               <div className="flex items-center gap-4">
                 <Button
                   onClick={generateDocumentation}
@@ -780,13 +986,6 @@ export default function FilesPage() {
                 </Button>
               </div>
             </div>
-
-            {/* Branch Selector */}
-            <BranchSelector
-              currentBranch={currentBranch}
-              onBranchChange={handleBranchChange}
-              repository={repository}
-            />
           </div>
         </div>
 
@@ -947,6 +1146,12 @@ export default function FilesPage() {
           />
         </div>
       </div>
+
+      {/* GitHub Token Dialog */}
+      <GitHubTokenDialog
+        isOpen={isTokenDialogOpen}
+        onClose={() => setIsTokenDialogOpen(false)}
+      />
     </LayoutWrapper>
   );
 }
