@@ -346,23 +346,6 @@ export function FileContentViewer({
             <Button variant="ghost" size="sm" onClick={downloadFile}>
               <Download className="h-4 w-4" />
             </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm">
-                  <MoreHorizontal className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={copyToClipboard}>
-                  <Copy className="h-4 w-4 mr-2" />
-                  Copy content
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={downloadFile}>
-                  <Download className="h-4 w-4 mr-2" />
-                  Download file
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
           </div>
         </div>
 
@@ -374,26 +357,6 @@ export function FileContentViewer({
             <span>{lineCount} lines</span>
             {file.size && <span>{formatFileSize(file.size)}</span>}
           </div>
-        </div>
-
-        {/* View Mode Toggle */}
-        <div className="flex items-center gap-2 mt-3">
-          <Button
-            variant={viewMode === "code" ? "default" : "ghost"}
-            size="sm"
-            onClick={() => setViewMode("code")}
-          >
-            <Eye className="h-4 w-4 mr-1" />
-            Code
-          </Button>
-          <Button
-            variant={viewMode === "blame" ? "default" : "ghost"}
-            size="sm"
-            onClick={() => setViewMode("blame")}
-          >
-            <Edit className="h-4 w-4 mr-1" />
-            Blame
-          </Button>
         </div>
       </div>
 
