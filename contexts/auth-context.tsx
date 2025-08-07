@@ -61,8 +61,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       console.error("Logout error:", error);
     } finally {
+      // Clear authentication data
       clearAuth();
       setUser(null);
+
+      // Clear GitHub token and its timeout
+      const timeoutId = sessionStorage.getItem("github_token_timeout");
+      if (timeoutId) {
+        clearTimeout(parseInt(timeoutId));
+        sessionStorage.removeItem("github_token_timeout");
+      }
+      sessionStorage.removeItem("github_token");
+
+      // Dispatch event to notify components
+      window.dispatchEvent(new CustomEvent("github-token-removed"));
     }
   };
 

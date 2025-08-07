@@ -16,6 +16,13 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Github,
   Key,
   CheckCircle,
@@ -23,6 +30,8 @@ import {
   Eye,
   EyeOff,
   RefreshCw,
+  Clock,
+  X,
 } from "lucide-react";
 
 interface GitHubTokenDialogProps {
@@ -37,12 +46,49 @@ export function GitHubTokenDialog({ isOpen, onClose }: GitHubTokenDialogProps) {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [hasExistingToken, setHasExistingToken] = useState(false);
+  const [expirationTime, setExpirationTime] = useState("logout"); // Default to logout only
 
   useEffect(() => {
     if (isOpen) {
       // Check if there's an existing token
-      const existingToken = sessionStorage.getItem("github_token");
-      setHasExistingToken(!!existingToken);
+      const existingTokenData = sessionStorage.getItem("github_token");
+      if (existingTokenData) {
+        try {
+          const tokenData = JSON.parse(existingTokenData);
+          // Check if it's the new format with expiration metadata
+          if (tokenData.expiresAt !== undefined) {
+            // Check if it's a logout-only token
+            if (
+              tokenData.expiresAt === null ||
+              tokenData.expirationMode === "logout"
+            ) {
+              // Logout-only token, treat as existing and valid
+              setHasExistingToken(true);
+            } else {
+              // Time-based expiration token, check if expired
+              if (Date.now() > tokenData.expiresAt) {
+                // Token has expired, remove it
+                sessionStorage.removeItem("github_token");
+                sessionStorage.removeItem("github_token_timeout");
+                setHasExistingToken(false);
+                window.dispatchEvent(new CustomEvent("github-token-expired"));
+              } else {
+                setHasExistingToken(true);
+              }
+            }
+          } else {
+            // Old format token (string), treat as existing but expired
+            setHasExistingToken(true);
+          }
+        } catch (error) {
+          // Invalid JSON, remove the token
+          sessionStorage.removeItem("github_token");
+          setHasExistingToken(false);
+        }
+      } else {
+        setHasExistingToken(false);
+      }
+
       setToken("");
       setError("");
       setSuccess("");
@@ -70,24 +116,69 @@ export function GitHubTokenDialog({ isOpen, onClose }: GitHubTokenDialogProps) {
     // Simulate token validation
     setTimeout(() => {
       try {
-        // Store the new token
-        sessionStorage.setItem("github_token", token);
+        // Calculate expiration time
+        let expirationTimestamp = null;
+        let timeoutId = null;
+
+        if (expirationTime !== "logout") {
+          const expirationMinutes = parseInt(expirationTime);
+          expirationTimestamp = Date.now() + expirationMinutes * 60 * 1000;
+
+          // Set up automatic removal timer only if not "logout" option
+          timeoutId = setTimeout(() => {
+            sessionStorage.removeItem("github_token");
+            window.dispatchEvent(new CustomEvent("github-token-expired"));
+          }, expirationMinutes * 60 * 1000);
+
+          // Store the timeout ID so we can clear it if needed
+          sessionStorage.setItem("github_token_timeout", timeoutId.toString());
+        } else {
+          // Clear any existing timeout for logout-only tokens
+          const existingTimeoutId = sessionStorage.getItem(
+            "github_token_timeout"
+          );
+          if (existingTimeoutId) {
+            clearTimeout(parseInt(existingTimeoutId));
+            sessionStorage.removeItem("github_token_timeout");
+          }
+        }
+
+        // Store the new token with expiration (or null for logout-only)
+        const tokenData = {
+          token: token,
+          expiresAt: expirationTimestamp,
+          createdAt: Date.now(),
+          expirationMode: expirationTime,
+        };
+
+        sessionStorage.setItem("github_token", JSON.stringify(tokenData));
 
         // Dispatch a custom event to notify other components
         window.dispatchEvent(
           new CustomEvent("github-token-updated", {
-            detail: { token },
+            detail: {
+              token,
+              expiresAt: expirationTimestamp,
+              expirationMode: expirationTime,
+              expirationMinutes:
+                expirationTime !== "logout" ? parseInt(expirationTime) : null,
+            },
           })
         );
 
-        setSuccess("GitHub token updated successfully!");
+        const successMessage =
+          expirationTime === "logout"
+            ? "GitHub token updated successfully! Will persist until logout."
+            : `GitHub token updated successfully! Expires in ${expirationTime} minutes.`;
+
+        setSuccess(successMessage);
         setIsLoading(false);
 
         // Close dialog after a short delay
         setTimeout(() => {
           onClose();
           setSuccess("");
-        }, 1500);
+        }, 2000);
       } catch (err) {
         setError("Failed to update token. Please try again.");
         setIsLoading(false);
@@ -96,7 +187,14 @@ export function GitHubTokenDialog({ isOpen, onClose }: GitHubTokenDialogProps) {
   };
 
   const handleRemoveToken = () => {
+    // Clear the token and timeout
     sessionStorage.removeItem("github_token");
+    const timeoutId = sessionStorage.getItem("github_token_timeout");
+    if (timeoutId) {
+      clearTimeout(parseInt(timeoutId));
+      sessionStorage.removeItem("github_token_timeout");
+    }
+
     window.dispatchEvent(new CustomEvent("github-token-removed"));
     setHasExistingToken(false);
     setSuccess("GitHub token removed successfully!");
@@ -165,7 +263,7 @@ export function GitHubTokenDialog({ isOpen, onClose }: GitHubTokenDialogProps) {
                 <Input
                   id="token"
                   type={showToken ? "text" : "password"}
-                  placeholder="github_pat_xxxxxxxxxxxxxxxxxxxx"
+                  placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
                   value={token}
                   onChange={(e) => setToken(e.target.value)}
                   className="pr-10"
@@ -184,6 +282,27 @@ export function GitHubTokenDialog({ isOpen, onClose }: GitHubTokenDialogProps) {
                   )}
                 </Button>
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="expiration">Token Expiration</Label>
+              <Select value={expirationTime} onValueChange={setExpirationTime}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select expiration time" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="logout">Only remove on logout</SelectItem>
+                  <SelectItem value="10">10 minutes</SelectItem>
+                  <SelectItem value="30">30 minutes</SelectItem>
+                  <SelectItem value="60">1 hour</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-gray-500 flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                {expirationTime === "logout"
+                  ? "Token will only be removed when you log out"
+                  : "Token will be automatically removed after the selected time"}
+              </p>
             </div>
 
             <div className="flex gap-2">

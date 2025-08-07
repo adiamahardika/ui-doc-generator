@@ -26,6 +26,7 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
+  Clock,
 } from "lucide-react";
 import { LayoutWrapper } from "@/components/layout-wrapper";
 import { GitHubTokenDialog } from "@/components/github-token-dialog";
@@ -56,16 +57,14 @@ export default function DashboardPage() {
   const { user } = useAuth();
   const router = useRouter();
   const [githubToken, setGithubToken] = useState("");
+  const [tokenExpiresAt, setTokenExpiresAt] = useState<number | null>(null);
+  const [tokenExpired, setTokenExpired] = useState(false);
   const [repositories, setRepositories] = useState<Repository[]>([]);
   const [filteredRepos, setFilteredRepos] = useState<Repository[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isTokenDialogOpen, setIsTokenDialogOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [repositoryCount, setRepositoryCount] = useState<{
-    total: number;
-    showing: number;
-  } | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [sortBy, setSortBy] = useState<"updated_at" | "name">("updated_at");
@@ -78,12 +77,80 @@ export default function DashboardPage() {
 
   useEffect(() => {
     // Check if token is already saved in session
-    const savedToken = sessionStorage.getItem("github_token");
-    if (savedToken) {
-      setGithubToken(savedToken);
-      fetchRepositories(savedToken, 1, itemsPerPage, sortBy, sortOrder, "");
+    const savedTokenData = sessionStorage.getItem("github_token");
+    if (savedTokenData) {
+      try {
+        const tokenData = JSON.parse(savedTokenData);
+        // Check if it's the new format with expiration
+        if (tokenData.expiresAt !== undefined) {
+          // Check if it's a logout-only token (expiresAt will be null)
+          if (
+            tokenData.expiresAt === null ||
+            tokenData.expirationMode === "logout"
+          ) {
+            // Logout-only token, use it without expiration
+            setGithubToken(tokenData.token);
+            setTokenExpiresAt(null);
+            setTokenExpired(false);
+            fetchRepositories(
+              tokenData.token,
+              1,
+              itemsPerPage,
+              sortBy,
+              sortOrder,
+              ""
+            );
+          } else {
+            // Check if token has expired
+            if (Date.now() > tokenData.expiresAt) {
+              // Token has expired, remove it
+              sessionStorage.removeItem("github_token");
+              sessionStorage.removeItem("github_token_timeout");
+              setGithubToken("");
+              setTokenExpiresAt(null);
+              setTokenExpired(true);
+              fetchRepositories("", 1, itemsPerPage, sortBy, sortOrder, "");
+            } else {
+              setGithubToken(tokenData.token);
+              setTokenExpiresAt(tokenData.expiresAt);
+              setTokenExpired(false);
+              fetchRepositories(
+                tokenData.token,
+                1,
+                itemsPerPage,
+                sortBy,
+                sortOrder,
+                ""
+              );
+            }
+          }
+        } else {
+          // Old format token (string), use it but treat as no expiration
+          setGithubToken(savedTokenData);
+          setTokenExpiresAt(null);
+          setTokenExpired(false);
+          fetchRepositories(
+            savedTokenData,
+            1,
+            itemsPerPage,
+            sortBy,
+            sortOrder,
+            ""
+          );
+        }
+      } catch (error) {
+        // Invalid JSON, remove the token
+        sessionStorage.removeItem("github_token");
+        setGithubToken("");
+        setTokenExpiresAt(null);
+        setTokenExpired(false);
+        fetchRepositories("", 1, itemsPerPage, sortBy, sortOrder, "");
+      }
     } else {
       // Fetch repositories without token
+      setGithubToken("");
+      setTokenExpiresAt(null);
+      setTokenExpired(false);
       fetchRepositories("", 1, itemsPerPage, sortBy, sortOrder, "");
     }
   }, []);
@@ -192,19 +259,6 @@ export default function DashboardPage() {
         setFilteredRepos(repos); // Always use repos directly since search is handled by backend
         setError(null);
 
-        // Store count and pagination info
-        if (result.data.total_count !== undefined) {
-          setRepositoryCount({
-            total: result.data.total_count,
-            showing: repos.length,
-          });
-        } else {
-          setRepositoryCount({
-            total: repos.length,
-            showing: repos.length,
-          });
-        }
-
         // Store pagination info
         if (result.data.pagination) {
           setPagination({
@@ -219,14 +273,12 @@ export default function DashboardPage() {
         setError(result.message || "Failed to fetch repositories");
         setRepositories([]);
         setFilteredRepos([]);
-        setRepositoryCount(null);
       }
     } catch (error) {
       console.error("Error fetching repositories:", error);
       setError("Network error. Please check your connection and try again.");
       setRepositories([]);
       setFilteredRepos([]);
-      setRepositoryCount(null);
     } finally {
       setIsLoading(false);
     }
@@ -259,27 +311,55 @@ export default function DashboardPage() {
     return colors[language] || "bg-gray-500";
   };
 
+  const getTimeRemaining = (expiresAt: number) => {
+    const now = Date.now();
+    const remaining = expiresAt - now;
+
+    if (remaining <= 0) return "Expired";
+
+    const minutes = Math.floor(remaining / (1000 * 60));
+    const hours = Math.floor(minutes / 60);
+
+    if (hours > 0) {
+      const remainingMinutes = minutes % 60;
+      return `${hours}h ${remainingMinutes}m`;
+    } else {
+      return `${minutes}m`;
+    }
+  };
+
   useEffect(() => {
     const handleTokenUpdate = (event: CustomEvent) => {
-      const newToken = event.detail.token;
-      setGithubToken(newToken);
+      const { token, expiresAt } = event.detail;
+      setGithubToken(token);
+      setTokenExpiresAt(expiresAt);
+      setTokenExpired(false);
       setError(null); // Clear any previous errors
       setCurrentPage(1); // Reset to first page
-      fetchRepositories(
-        newToken,
-        1,
-        itemsPerPage,
-        sortBy,
-        sortOrder,
-        searchTerm
-      );
+      fetchRepositories(token, 1, itemsPerPage, sortBy, sortOrder, searchTerm);
     };
 
     const handleTokenRemove = () => {
       setGithubToken("");
+      setTokenExpiresAt(null);
+      setTokenExpired(false);
       setRepositories([]);
       setFilteredRepos([]);
       setError(null); // Clear any previous errors
+      setCurrentPage(1); // Reset to first page
+      setPagination(null);
+      fetchRepositories("", 1, itemsPerPage, sortBy, sortOrder, searchTerm);
+    };
+
+    const handleTokenExpired = () => {
+      setGithubToken("");
+      setTokenExpiresAt(null);
+      setTokenExpired(true);
+      setRepositories([]);
+      setFilteredRepos([]);
+      setError(
+        "GitHub token has expired. Please add a new token to continue accessing your repositories."
+      );
       setCurrentPage(1); // Reset to first page
       setPagination(null);
       fetchRepositories("", 1, itemsPerPage, sortBy, sortOrder, searchTerm);
@@ -293,6 +373,10 @@ export default function DashboardPage() {
       "github-token-removed",
       handleTokenRemove as EventListener
     );
+    window.addEventListener(
+      "github-token-expired",
+      handleTokenExpired as EventListener
+    );
 
     return () => {
       window.removeEventListener(
@@ -303,8 +387,34 @@ export default function DashboardPage() {
         "github-token-removed",
         handleTokenRemove as EventListener
       );
+      window.removeEventListener(
+        "github-token-expired",
+        handleTokenExpired as EventListener
+      );
     };
   }, []);
+
+  // Timer to update expiration countdown
+  useEffect(() => {
+    if (!tokenExpiresAt || tokenExpired) return;
+
+    const interval = setInterval(() => {
+      if (Date.now() > tokenExpiresAt) {
+        // Token has expired
+        sessionStorage.removeItem("github_token");
+        sessionStorage.removeItem("github_token_timeout");
+        setGithubToken("");
+        setTokenExpiresAt(null);
+        setTokenExpired(true);
+        setError(
+          "GitHub token has expired. Please add a new token to continue accessing your repositories."
+        );
+        clearInterval(interval);
+      }
+    }, 30000); // Check every 30 seconds
+
+    return () => clearInterval(interval);
+  }, [tokenExpiresAt, tokenExpired]);
 
   return (
     <ProtectedRoute>
@@ -319,34 +429,35 @@ export default function DashboardPage() {
           </div>
 
           <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <h2 className="text-2xl font-semibold text-gray-900">
-                  {githubToken ? "Your Repositories" : "Public Repositories"}
-                </h2>
-                <Badge
-                  variant="secondary"
-                  className={
-                    githubToken
-                      ? "bg-green-100 text-green-800"
-                      : "bg-blue-100 text-blue-800"
-                  }
-                >
-                  {githubToken
-                    ? "Connected to GitHub"
-                    : "Browsing Public Repos"}
-                </Badge>
-                {repositoryCount && (
-                  <Badge variant="outline" className="text-sm">
-                    {pagination
-                      ? `Page ${currentPage} of ${pagination.totalPages} (${repositoryCount.total} total)`
-                      : repositoryCount.total === repositoryCount.showing
-                      ? `${repositoryCount.total} repositories`
-                      : `${repositoryCount.showing} of ${repositoryCount.total} repositories`}
+            <div className="flex items-center justify-end">
+              <div className="flex items-center gap-2">
+                {githubToken && tokenExpiresAt && !tokenExpired && (
+                  <Badge
+                    variant="outline"
+                    className="text-xs bg-yellow-50 text-yellow-800 border-yellow-200"
+                  >
+                    <Clock className="h-3 w-3 mr-1" />
+                    Expires in {getTimeRemaining(tokenExpiresAt)}
                   </Badge>
                 )}
-              </div>
-              <div className="flex items-center gap-2">
+                {githubToken && !tokenExpiresAt && !tokenExpired && (
+                  <Badge
+                    variant="outline"
+                    className="text-xs bg-blue-50 text-blue-800 border-blue-200"
+                  >
+                    <Key className="h-3 w-3 mr-1" />
+                    Active until logout
+                  </Badge>
+                )}
+                {tokenExpired && (
+                  <Badge
+                    variant="outline"
+                    className="text-xs bg-red-50 text-red-800 border-red-200"
+                  >
+                    <X className="h-3 w-3 mr-1" />
+                    Token Removed
+                  </Badge>
+                )}
                 <Button
                   variant="outline"
                   onClick={() => setIsTokenDialogOpen(true)}
@@ -388,18 +499,19 @@ export default function DashboardPage() {
             </div>
 
             <div className="space-y-4">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-                <Input
-                  placeholder="Search repositories..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-
               <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2">
+                <div className="flex-1">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                    <Input
+                      placeholder="Search repositories..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="pl-10 w-full"
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
                   <span className="text-sm font-medium text-gray-700">
                     Sort by:
                   </span>
@@ -429,7 +541,7 @@ export default function DashboardPage() {
                   </Select>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-shrink-0">
                   <span className="text-sm font-medium text-gray-700">
                     Order:
                   </span>
@@ -458,7 +570,7 @@ export default function DashboardPage() {
                   </Select>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-shrink-0">
                   <span className="text-sm font-medium text-gray-700">
                     Per page:
                   </span>
