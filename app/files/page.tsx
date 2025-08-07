@@ -14,6 +14,7 @@ import { FileTree } from "@/components/file-tree";
 import { FileContentViewer } from "@/components/file-content-viewer";
 import { BranchSelector } from "@/components/branch-selector";
 import { apiRequest } from "@/lib/auth";
+import { useAuth } from "@/contexts/auth-context";
 
 // PDF and ZIP utilities
 import { generateAdvancedPDF } from "@/lib/pdf-generator";
@@ -171,8 +172,17 @@ export default function FilesPage() {
     message: string;
   } | null>(null);
   const router = useRouter();
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
 
   useEffect(() => {
+    // Don't proceed if auth is still loading
+    if (authLoading) return;
+
+    if (!isAuthenticated) {
+      router.push("/");
+      return;
+    }
+
     const userData = localStorage.getItem("user");
     const repoData = sessionStorage.getItem("selected_repository");
 
@@ -186,7 +196,7 @@ export default function FilesPage() {
 
     setUser(parsedUser);
     setRepository(parsedRepo);
-  }, [router]);
+  }, [router, authLoading, isAuthenticated]);
 
   // Clear notifications after 5 seconds
   useEffect(() => {
@@ -706,8 +716,17 @@ export default function FilesPage() {
     }
   };
 
-  if (!user || !repository) {
-    return <div>Loading...</div>;
+  if (authLoading || !user || !repository) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">
+            {authLoading ? "Loading..." : "Loading repository data..."}
+          </p>
+        </div>
+      </div>
+    );
   }
 
   const allFiles = getAllFiles(files);

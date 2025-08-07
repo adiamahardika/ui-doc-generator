@@ -56,7 +56,7 @@ export default function ProfilePage() {
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [isCheckingGithub, setIsCheckingGithub] = useState(false);
   const router = useRouter();
-  const { user: authUser, isAuthenticated } = useAuth();
+  const { user: authUser, isAuthenticated, isLoading: authLoading } = useAuth();
 
   // Fetch user data from backend
   const fetchUserData = async () => {
@@ -97,13 +97,16 @@ export default function ProfilePage() {
   };
 
   useEffect(() => {
+    // Don't redirect if auth is still loading
+    if (authLoading) return;
+
     if (!isAuthenticated || !authUser) {
       router.push("/");
       return;
     }
 
     fetchUserData();
-  }, [router, isAuthenticated, authUser]);
+  }, [router, isAuthenticated, authUser, authLoading]);
 
   // Auto-dismiss notifications after 5 seconds
   useEffect(() => {
@@ -361,12 +364,14 @@ export default function ProfilePage() {
     }
   };
 
-  if (!user) {
+  if (authLoading || !user) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading profile...</p>
+          <p className="mt-4 text-gray-600">
+            {authLoading ? "Loading..." : "Loading profile..."}
+          </p>
         </div>
       </div>
     );
