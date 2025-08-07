@@ -33,6 +33,7 @@ import { GitHubTokenDialog } from "@/components/github-token-dialog";
 import { ProtectedRoute } from "@/components/protected-route";
 import { useAuth } from "@/contexts/auth-context";
 import { apiRequest } from "@/lib/auth";
+import { getGitHubToken, getGitHubTokenData } from "@/lib/github-token";
 
 interface Repository {
   id: number;
@@ -77,75 +78,43 @@ export default function DashboardPage() {
 
   useEffect(() => {
     // Check if token is already saved in session
-    const savedTokenData = sessionStorage.getItem("github_token");
-    if (savedTokenData) {
-      try {
-        const tokenData = JSON.parse(savedTokenData);
-        // Check if it's the new format with expiration
-        if (tokenData.expiresAt !== undefined) {
-          // Check if it's a logout-only token (expiresAt will be null)
-          if (
-            tokenData.expiresAt === null ||
-            tokenData.expirationMode === "logout"
-          ) {
-            // Logout-only token, use it without expiration
-            setGithubToken(tokenData.token);
-            setTokenExpiresAt(null);
-            setTokenExpired(false);
-            fetchRepositories(
-              tokenData.token,
-              1,
-              itemsPerPage,
-              sortBy,
-              sortOrder,
-              ""
-            );
-          } else {
-            // Check if token has expired
-            if (Date.now() > tokenData.expiresAt) {
-              // Token has expired, remove it
-              sessionStorage.removeItem("github_token");
-              sessionStorage.removeItem("github_token_timeout");
-              setGithubToken("");
-              setTokenExpiresAt(null);
-              setTokenExpired(true);
-              fetchRepositories("", 1, itemsPerPage, sortBy, sortOrder, "");
-            } else {
-              setGithubToken(tokenData.token);
-              setTokenExpiresAt(tokenData.expiresAt);
-              setTokenExpired(false);
-              fetchRepositories(
-                tokenData.token,
-                1,
-                itemsPerPage,
-                sortBy,
-                sortOrder,
-                ""
-              );
-            }
-          }
-        } else {
-          // Old format token (string), use it but treat as no expiration
-          setGithubToken(savedTokenData);
-          setTokenExpiresAt(null);
-          setTokenExpired(false);
-          fetchRepositories(
-            savedTokenData,
-            1,
-            itemsPerPage,
-            sortBy,
-            sortOrder,
-            ""
-          );
-        }
-      } catch (error) {
-        // Invalid JSON, remove the token
-        sessionStorage.removeItem("github_token");
-        setGithubToken("");
+    const tokenData = getGitHubTokenData();
+    const token = getGitHubToken();
+
+    if (tokenData && token) {
+      // Check if it's a logout-only token (expiresAt will be null)
+      if (
+        tokenData.expiresAt === null ||
+        tokenData.expirationMode === "logout"
+      ) {
+        // Logout-only token, use it without expiration
+        setGithubToken(token);
         setTokenExpiresAt(null);
         setTokenExpired(false);
-        fetchRepositories("", 1, itemsPerPage, sortBy, sortOrder, "");
+        fetchRepositories(token, 1, itemsPerPage, sortBy, sortOrder, "");
+      } else {
+        // Check if token has expired
+        if (Date.now() > tokenData.expiresAt) {
+          // Token has expired, remove it
+          sessionStorage.removeItem("github_token");
+          sessionStorage.removeItem("github_token_timeout");
+          setGithubToken("");
+          setTokenExpiresAt(null);
+          setTokenExpired(true);
+          fetchRepositories("", 1, itemsPerPage, sortBy, sortOrder, "");
+        } else {
+          setGithubToken(token);
+          setTokenExpiresAt(tokenData.expiresAt);
+          setTokenExpired(false);
+          fetchRepositories(token, 1, itemsPerPage, sortBy, sortOrder, "");
+        }
       }
+    } else if (token) {
+      // Old format token (string), use it but treat as no expiration
+      setGithubToken(token);
+      setTokenExpiresAt(null);
+      setTokenExpired(false);
+      fetchRepositories(token, 1, itemsPerPage, sortBy, sortOrder, "");
     } else {
       // Fetch repositories without token
       setGithubToken("");

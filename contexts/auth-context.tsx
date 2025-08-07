@@ -9,6 +9,7 @@ import {
   isAuthenticated,
   logout as logoutAPI,
 } from "@/lib/auth";
+import { removeGitHubToken } from "@/lib/github-token";
 
 interface AuthContextType {
   user: User | null;
@@ -65,16 +66,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       clearAuth();
       setUser(null);
 
-      // Clear GitHub token and its timeout
-      const timeoutId = sessionStorage.getItem("github_token_timeout");
-      if (timeoutId) {
-        clearTimeout(parseInt(timeoutId));
-        sessionStorage.removeItem("github_token_timeout");
-      }
-      sessionStorage.removeItem("github_token");
-
-      // Dispatch event to notify components
-      window.dispatchEvent(new CustomEvent("github-token-removed"));
+      // Clear GitHub token using helper function
+      removeGitHubToken();
     }
   };
 

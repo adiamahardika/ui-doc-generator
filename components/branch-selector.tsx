@@ -11,6 +11,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { ChevronDown, GitBranch, RefreshCw } from "lucide-react";
 import { apiRequest } from "@/lib/auth";
+import { getGitHubToken } from "@/lib/github-token";
 
 interface Branch {
   name: string;
@@ -44,7 +45,7 @@ export function BranchSelector({
 
     try {
       // Add access token if available
-      const savedToken = sessionStorage.getItem("github_token");
+      const savedToken = getGitHubToken();
       const queryParams = new URLSearchParams();
       if (savedToken) {
         queryParams.append("access_token", savedToken);

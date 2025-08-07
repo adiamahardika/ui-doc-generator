@@ -15,6 +15,7 @@ import { FileContentViewer } from "@/components/file-content-viewer";
 import { BranchSelector } from "@/components/branch-selector";
 import { apiRequest } from "@/lib/auth";
 import { useAuth } from "@/contexts/auth-context";
+import { getGitHubToken } from "@/lib/github-token";
 
 // PDF and ZIP utilities
 import { generateAdvancedPDF } from "@/lib/pdf-generator";
@@ -229,7 +230,7 @@ export default function FilesPage() {
         queryParams.append("branch", currentBranch);
 
       // Add access token if available
-      const savedToken = sessionStorage.getItem("github_token");
+      const savedToken = getGitHubToken();
       if (savedToken) {
         queryParams.append("access_token", savedToken);
       }
@@ -436,7 +437,7 @@ export default function FilesPage() {
         }
 
         // Add access token if available
-        const savedToken = sessionStorage.getItem("github_token");
+        const savedToken = getGitHubToken();
         if (savedToken) {
           queryParams.append("access_token", savedToken);
         }
@@ -581,7 +582,7 @@ export default function FilesPage() {
               queryParams.append("branch", currentBranch);
             }
 
-            const savedToken = sessionStorage.getItem("github_token");
+            const savedToken = getGitHubToken();
             if (savedToken) {
               queryParams.append("access_token", savedToken);
             }
