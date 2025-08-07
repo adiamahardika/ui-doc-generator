@@ -1,182 +1,409 @@
-"use client"
+"use client";
 
-import type React from "react"
+import type React from "react";
 
-import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Eye, EyeOff, User, Mail, AtSign, Shield, CheckCircle, AlertCircle } from "lucide-react"
-import { LayoutWrapper } from "@/components/layout-wrapper"
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  Eye,
+  EyeOff,
+  User,
+  Mail,
+  Shield,
+  CheckCircle,
+  AlertCircle,
+  Github,
+} from "lucide-react";
+import { LayoutWrapper } from "@/components/layout-wrapper";
+import { useAuth } from "@/contexts/auth-context";
+import {
+  apiRequest,
+  type User as UserType,
+  type ApiResponse,
+} from "@/lib/auth";
 
 export default function ProfilePage() {
-  const [user, setUser] = useState<any>(null)
+  const [user, setUser] = useState<UserType | null>(null);
   const [formData, setFormData] = useState({
     name: "",
     email: "",
-    username: "",
+    github_username: "",
     currentPassword: "",
     newPassword: "",
     confirmPassword: "",
-  })
-  const [showCurrentPassword, setShowCurrentPassword] = useState(false)
-  const [showNewPassword, setShowNewPassword] = useState(false)
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
-  const [errors, setErrors] = useState<Record<string, string>>({})
-  const [isLoading, setIsLoading] = useState(false)
-  const [notification, setNotification] = useState<{ type: "success" | "error"; message: string } | null>(null)
-  const [isEditingProfile, setIsEditingProfile] = useState(false)
-  const [isChangingPassword, setIsChangingPassword] = useState(false)
-  const router = useRouter()
+  });
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [isLoading, setIsLoading] = useState(false);
+  const [notification, setNotification] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [isCheckingGithub, setIsCheckingGithub] = useState(false);
+  const router = useRouter();
+  const { user: authUser, isAuthenticated } = useAuth();
+
+  // Fetch user data from backend
+  const fetchUserData = async () => {
+    if (!authUser?.id) return;
+
+    try {
+      setIsLoading(true);
+      const response = await apiRequest(`/api/users/${authUser.id}`);
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch user data");
+      }
+
+      const result: ApiResponse<UserType> = await response.json();
+
+      if (result.success && result.data) {
+        setUser(result.data);
+        setFormData({
+          name: result.data.name || "",
+          email: result.data.email || "",
+          github_username: result.data.github_username || "",
+          currentPassword: "",
+          newPassword: "",
+          confirmPassword: "",
+        });
+      } else {
+        throw new Error(result.message || "Failed to fetch user data");
+      }
+    } catch (error) {
+      console.error("Error fetching user data:", error);
+      setNotification({
+        type: "error",
+        message: "Failed to load user data. Please try again.",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const userData = localStorage.getItem("user")
-    if (!userData) {
-      router.push("/")
-      return
+    if (!isAuthenticated || !authUser) {
+      router.push("/");
+      return;
     }
 
-    const parsedUser = JSON.parse(userData)
-    setUser(parsedUser)
-    setFormData({
-      name: parsedUser.name || "",
-      email: parsedUser.email || "",
-      username: parsedUser.username || "",
-      currentPassword: "",
-      newPassword: "",
-      confirmPassword: "",
-    })
-  }, [router])
+    fetchUserData();
+  }, [router, isAuthenticated, authUser]);
+
+  // Auto-dismiss notifications after 5 seconds
+  useEffect(() => {
+    if (notification) {
+      const timer = setTimeout(() => {
+        setNotification(null);
+      }, 5000);
+
+      return () => clearTimeout(timer);
+    }
+  }, [notification]);
+
+  // Debounced GitHub username validation
+  useEffect(() => {
+    const validateGithubUsername = async () => {
+      if (
+        !formData.github_username.trim() ||
+        formData.github_username.length < 3 ||
+        !isEditingProfile ||
+        formData.github_username === user?.github_username // Don't validate if it's the same as current
+      ) {
+        return;
+      }
+
+      setIsCheckingGithub(true);
+
+      try {
+        const response = await fetch(
+          `${
+            process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"
+          }/api/register/validate-github`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              githubUsername: formData.github_username,
+            }),
+          }
+        );
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          setErrors((prev) => ({
+            ...prev,
+            github_username:
+              result.message || "Error validating GitHub username",
+          }));
+        } else {
+          // Username is valid, clear any existing error
+          setErrors((prev) => {
+            const newErrors = { ...prev };
+            delete newErrors.github_username;
+            return newErrors;
+          });
+        }
+      } catch (error) {
+        setErrors((prev) => ({
+          ...prev,
+          github_username: "Error validating GitHub username",
+        }));
+      } finally {
+        setIsCheckingGithub(false);
+      }
+    };
+
+    const timeoutId = setTimeout(validateGithubUsername, 500); // 500ms debounce
+
+    return () => clearTimeout(timeoutId);
+  }, [formData.github_username, isEditingProfile, user?.github_username]);
 
   const validateProfileForm = () => {
-    const newErrors: Record<string, string> = {}
+    const newErrors: Record<string, string> = {};
 
     if (!formData.name.trim()) {
-      newErrors.name = "Name is required"
+      newErrors.name = "Name is required";
     }
 
     if (!formData.email) {
-      newErrors.email = "Email is required"
+      newErrors.email = "Email is required";
     } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
-      newErrors.email = "Please enter a valid email address"
+      newErrors.email = "Please enter a valid email address";
     }
 
-    if (!formData.username.trim()) {
-      newErrors.username = "Username is required"
-    } else if (formData.username.length < 3) {
-      newErrors.username = "Username must be at least 3 characters"
+    if (!formData.github_username.trim()) {
+      newErrors.github_username = "GitHub username is required";
+    } else if (formData.github_username.length < 3) {
+      newErrors.github_username =
+        "GitHub username must be at least 3 characters";
     }
 
-    setErrors(newErrors)
-    return Object.keys(newErrors).length === 0
-  }
+    setErrors(newErrors);
+
+    // Check if there are any existing GitHub username errors from async validation
+    const hasGithubError =
+      errors.github_username && errors.github_username !== "";
+
+    return Object.keys(newErrors).length === 0 && !hasGithubError;
+  };
 
   const validatePasswordForm = () => {
-    const newErrors: Record<string, string> = {}
+    const newErrors: Record<string, string> = {};
 
     if (!formData.currentPassword) {
-      newErrors.currentPassword = "Current password is required"
+      newErrors.currentPassword = "Current password is required";
     }
 
     if (!formData.newPassword) {
-      newErrors.newPassword = "New password is required"
-    } else if (formData.newPassword.length < 6) {
-      newErrors.newPassword = "Password must be at least 6 characters"
+      newErrors.newPassword = "New password is required";
+    } else if (formData.newPassword.length < 8) {
+      newErrors.newPassword = "Password must be at least 8 characters";
     }
 
     if (formData.newPassword !== formData.confirmPassword) {
-      newErrors.confirmPassword = "Passwords do not match"
+      newErrors.confirmPassword = "Passwords do not match";
     }
 
-    setErrors(newErrors)
-    return Object.keys(newErrors).length === 0
-  }
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
 
   const handleProfileUpdate = async (e: React.FormEvent) => {
-    e.preventDefault()
+    e.preventDefault();
 
-    if (!validateProfileForm()) return
+    // Prevent submission if GitHub validation is in progress or failed
+    if (
+      !validateProfileForm() ||
+      !user?.id ||
+      isCheckingGithub ||
+      errors.github_username
+    ) {
+      if (errors.github_username) {
+        setNotification({
+          type: "error",
+          message:
+            "Please resolve GitHub username validation errors before proceeding.",
+        });
+      }
+      return;
+    }
 
-    setIsLoading(true)
-    setNotification(null)
+    setIsLoading(true);
+    setNotification(null);
 
-    // Simulate API call
-    setTimeout(() => {
-      const updatedUser = {
-        ...user,
+    try {
+      const updateData = {
         name: formData.name,
         email: formData.email,
-        username: formData.username,
+        github_username: formData.github_username,
+      };
+
+      const response = await apiRequest(`/api/users/${user.id}`, {
+        method: "PUT",
+        body: JSON.stringify(updateData),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to update profile");
       }
 
-      localStorage.setItem("user", JSON.stringify(updatedUser))
-      setUser(updatedUser)
-      setIsEditingProfile(false)
-      setIsLoading(false)
+      const result: ApiResponse<UserType> = await response.json();
+
+      if (result.success && result.data) {
+        setUser(result.data);
+        setFormData((prev) => ({
+          ...prev,
+          name: result.data!.name,
+          email: result.data!.email,
+          github_username: result.data!.github_username,
+        }));
+        setIsEditingProfile(false);
+        setNotification({
+          type: "success",
+          message: result.message || "Profile updated successfully!",
+        });
+
+        // Update localStorage with new user data
+        localStorage.setItem("user", JSON.stringify(result.data));
+      } else {
+        throw new Error(result.message || "Failed to update profile");
+      }
+    } catch (error) {
+      console.error("Error updating profile:", error);
       setNotification({
-        type: "success",
-        message: "Profile updated successfully!",
-      })
-    }, 1000)
-  }
+        type: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Failed to update profile. Please try again.",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handlePasswordChange = async (e: React.FormEvent) => {
-    e.preventDefault()
+    e.preventDefault();
 
-    if (!validatePasswordForm()) return
+    if (!validatePasswordForm() || !user?.id) return;
 
-    setIsLoading(true)
-    setNotification(null)
+    setIsLoading(true);
+    setNotification(null);
 
-    // Simulate API call
-    setTimeout(() => {
-      setFormData((prev) => ({
-        ...prev,
-        currentPassword: "",
-        newPassword: "",
-        confirmPassword: "",
-      }))
-      setIsChangingPassword(false)
-      setIsLoading(false)
+    try {
+      const updateData = {
+        password: formData.newPassword,
+      };
+
+      const response = await apiRequest(`/api/users/${user.id}`, {
+        method: "PUT",
+        body: JSON.stringify(updateData),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to change password");
+      }
+
+      const result: ApiResponse<UserType> = await response.json();
+
+      if (result.success) {
+        setFormData((prev) => ({
+          ...prev,
+          currentPassword: "",
+          newPassword: "",
+          confirmPassword: "",
+        }));
+        setIsChangingPassword(false);
+        setNotification({
+          type: "success",
+          message: result.message || "Password changed successfully!",
+        });
+      } else {
+        throw new Error(result.message || "Failed to change password");
+      }
+    } catch (error) {
+      console.error("Error changing password:", error);
       setNotification({
-        type: "success",
-        message: "Password changed successfully!",
-      })
-    }, 1000)
-  }
+        type: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Failed to change password. Please try again.",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleInputChange = (field: string, value: string) => {
-    setFormData((prev) => ({ ...prev, [field]: value }))
+    setFormData((prev) => ({ ...prev, [field]: value }));
     if (errors[field]) {
-      setErrors((prev) => ({ ...prev, [field]: "" }))
+      setErrors((prev) => ({ ...prev, [field]: "" }));
     }
-  }
+  };
 
   if (!user) {
-    return <div>Loading...</div>
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading profile...</p>
+        </div>
+      </div>
+    );
   }
 
   return (
     <LayoutWrapper user={user}>
       <div className="container mx-auto px-4 py-8 max-w-4xl">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Profile Settings</h1>
-          <p className="text-gray-600">Manage your account information and security settings</p>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">
+            Profile Settings
+          </h1>
+          <p className="text-gray-600">
+            Manage your account information and security settings
+          </p>
         </div>
 
         {notification && (
           <Alert
-            className={`mb-6 ${notification.type === "success" ? "border-green-500 bg-green-50" : "border-red-500 bg-red-50"}`}
+            className={`mb-6 ${
+              notification.type === "success"
+                ? "border-green-500 bg-green-50"
+                : "border-red-500 bg-red-50"
+            }`}
           >
             {notification.type === "success" ? (
               <CheckCircle className="h-4 w-4 text-green-600" />
             ) : (
               <AlertCircle className="h-4 w-4 text-red-600" />
             )}
-            <AlertDescription className={notification.type === "success" ? "text-green-800" : "text-red-800"}>
+            <AlertDescription
+              className={
+                notification.type === "success"
+                  ? "text-green-800"
+                  : "text-red-800"
+              }
+            >
               {notification.message}
             </AlertDescription>
           </Alert>
@@ -190,7 +417,9 @@ export default function ProfilePage() {
                 <User className="h-5 w-5" />
                 Profile Information
               </CardTitle>
-              <CardDescription>Update your personal information and account details</CardDescription>
+              <CardDescription>
+                Update your personal information and account details
+              </CardDescription>
             </CardHeader>
             <CardContent>
               {!isEditingProfile ? (
@@ -199,7 +428,6 @@ export default function ProfilePage() {
                     <User className="h-5 w-5 text-gray-500" />
                     <div>
                       <p className="font-medium text-gray-900">{user.name}</p>
-                      <p className="text-sm text-gray-600">Full Name</p>
                     </div>
                   </div>
 
@@ -207,27 +435,22 @@ export default function ProfilePage() {
                     <Mail className="h-5 w-5 text-gray-500" />
                     <div>
                       <p className="font-medium text-gray-900">{user.email}</p>
-                      <p className="text-sm text-gray-600">Email Address</p>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                    <AtSign className="h-5 w-5 text-gray-500" />
+                    <Github className="h-5 w-5 text-gray-500" />
                     <div>
-                      <p className="font-medium text-gray-900">{user.username}</p>
-                      <p className="text-sm text-gray-600">Username</p>
+                      <p className="font-medium text-gray-900">
+                        {user.github_username}
+                      </p>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                    <Shield className="h-5 w-5 text-gray-500" />
-                    <div>
-                      <p className="font-medium text-gray-900 capitalize">{user.role}</p>
-                      <p className="text-sm text-gray-600">Account Role</p>
-                    </div>
-                  </div>
-
-                  <Button onClick={() => setIsEditingProfile(true)} className="w-full">
+                  <Button
+                    onClick={() => setIsEditingProfile(true)}
+                    className="w-full"
+                  >
                     Edit Profile
                   </Button>
                 </div>
@@ -239,10 +462,14 @@ export default function ProfilePage() {
                       id="name"
                       type="text"
                       value={formData.name}
-                      onChange={(e) => handleInputChange("name", e.target.value)}
+                      onChange={(e) =>
+                        handleInputChange("name", e.target.value)
+                      }
                       className={errors.name ? "border-red-500" : ""}
                     />
-                    {errors.name && <p className="text-sm text-red-500">{errors.name}</p>}
+                    {errors.name && (
+                      <p className="text-sm text-red-500">{errors.name}</p>
+                    )}
                   </div>
 
                   <div className="space-y-2">
@@ -251,34 +478,87 @@ export default function ProfilePage() {
                       id="email"
                       type="email"
                       value={formData.email}
-                      onChange={(e) => handleInputChange("email", e.target.value)}
+                      onChange={(e) =>
+                        handleInputChange("email", e.target.value)
+                      }
                       className={errors.email ? "border-red-500" : ""}
                     />
-                    {errors.email && <p className="text-sm text-red-500">{errors.email}</p>}
+                    {errors.email && (
+                      <p className="text-sm text-red-500">{errors.email}</p>
+                    )}
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="username">Username</Label>
-                    <Input
-                      id="username"
-                      type="text"
-                      value={formData.username}
-                      onChange={(e) => handleInputChange("username", e.target.value)}
-                      className={errors.username ? "border-red-500" : ""}
-                    />
-                    {errors.username && <p className="text-sm text-red-500">{errors.username}</p>}
+                    <Label htmlFor="github_username">GitHub Username</Label>
+                    <div className="relative">
+                      <Github className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                      <Input
+                        id="github_username"
+                        type="text"
+                        value={formData.github_username}
+                        onChange={(e) =>
+                          handleInputChange("github_username", e.target.value)
+                        }
+                        className={`pl-10 pr-10 ${
+                          errors.github_username ? "border-red-500" : ""
+                        }`}
+                      />
+                      {isCheckingGithub &&
+                        formData.github_username.length >= 3 && (
+                          <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                            <div className="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+                          </div>
+                        )}
+                    </div>
+                    {errors.github_username && (
+                      <p className="text-sm text-red-500">
+                        {errors.github_username}
+                      </p>
+                    )}
+                    {!errors.github_username &&
+                      !isCheckingGithub &&
+                      formData.github_username.length >= 3 &&
+                      formData.github_username !== user?.github_username && (
+                        <p className="text-sm text-green-600">
+                          ✓ GitHub username is valid
+                        </p>
+                      )}
                   </div>
 
                   <div className="flex gap-2">
-                    <Button type="submit" disabled={isLoading} className="flex-1">
-                      {isLoading ? "Updating..." : "Update Profile"}
+                    <Button
+                      type="submit"
+                      disabled={
+                        isLoading ||
+                        isCheckingGithub ||
+                        !!errors.github_username
+                      }
+                      className="flex-1"
+                    >
+                      {isLoading
+                        ? "Updating..."
+                        : isCheckingGithub
+                        ? "Validating GitHub Username..."
+                        : errors.github_username
+                        ? "Fix GitHub Username First"
+                        : "Update Profile"}
                     </Button>
                     <Button
                       type="button"
                       variant="outline"
                       onClick={() => {
-                        setIsEditingProfile(false)
-                        setErrors({})
+                        setIsEditingProfile(false);
+                        setErrors({});
+                        setIsCheckingGithub(false);
+                        // Reset form data to current user data
+                        if (user) {
+                          setFormData((prev) => ({
+                            ...prev,
+                            name: user.name,
+                            email: user.email,
+                            github_username: user.github_username,
+                          }));
+                        }
                       }}
                       className="flex-1"
                     >
@@ -297,18 +577,26 @@ export default function ProfilePage() {
                 <Shield className="h-5 w-5" />
                 Security Settings
               </CardTitle>
-              <CardDescription>Change your password to keep your account secure</CardDescription>
+              <CardDescription>
+                Change your password to keep your account secure
+              </CardDescription>
             </CardHeader>
             <CardContent>
               {!isChangingPassword ? (
                 <div className="space-y-4">
                   <div className="p-4 bg-blue-50 rounded-lg">
-                    <h4 className="font-medium text-blue-900 mb-2">Password Security</h4>
+                    <h4 className="font-medium text-blue-900 mb-2">
+                      Password Security
+                    </h4>
                     <p className="text-sm text-blue-700 mb-3">
-                      Your password was last changed recently. For security, we recommend changing your password
-                      regularly.
+                      Your password was last changed recently. For security, we
+                      recommend changing your password regularly.
                     </p>
-                    <Button onClick={() => setIsChangingPassword(true)} variant="outline" className="w-full">
+                    <Button
+                      onClick={() => setIsChangingPassword(true)}
+                      variant="outline"
+                      className="w-full"
+                    >
                       Change Password
                     </Button>
                   </div>
@@ -322,20 +610,34 @@ export default function ProfilePage() {
                         id="currentPassword"
                         type={showCurrentPassword ? "text" : "password"}
                         value={formData.currentPassword}
-                        onChange={(e) => handleInputChange("currentPassword", e.target.value)}
-                        className={errors.currentPassword ? "border-red-500" : ""}
+                        onChange={(e) =>
+                          handleInputChange("currentPassword", e.target.value)
+                        }
+                        className={
+                          errors.currentPassword ? "border-red-500" : ""
+                        }
                       />
                       <Button
                         type="button"
                         variant="ghost"
                         size="sm"
                         className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                        onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                        onClick={() =>
+                          setShowCurrentPassword(!showCurrentPassword)
+                        }
                       >
-                        {showCurrentPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        {showCurrentPassword ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
                       </Button>
                     </div>
-                    {errors.currentPassword && <p className="text-sm text-red-500">{errors.currentPassword}</p>}
+                    {errors.currentPassword && (
+                      <p className="text-sm text-red-500">
+                        {errors.currentPassword}
+                      </p>
+                    )}
                   </div>
 
                   <div className="space-y-2">
@@ -345,7 +647,9 @@ export default function ProfilePage() {
                         id="newPassword"
                         type={showNewPassword ? "text" : "password"}
                         value={formData.newPassword}
-                        onChange={(e) => handleInputChange("newPassword", e.target.value)}
+                        onChange={(e) =>
+                          handleInputChange("newPassword", e.target.value)
+                        }
                         className={errors.newPassword ? "border-red-500" : ""}
                       />
                       <Button
@@ -355,51 +659,79 @@ export default function ProfilePage() {
                         className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
                         onClick={() => setShowNewPassword(!showNewPassword)}
                       >
-                        {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        {showNewPassword ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
                       </Button>
                     </div>
-                    {errors.newPassword && <p className="text-sm text-red-500">{errors.newPassword}</p>}
+                    {errors.newPassword && (
+                      <p className="text-sm text-red-500">
+                        {errors.newPassword}
+                      </p>
+                    )}
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="confirmPassword">Confirm New Password</Label>
+                    <Label htmlFor="confirmPassword">
+                      Confirm New Password
+                    </Label>
                     <div className="relative">
                       <Input
                         id="confirmPassword"
                         type={showConfirmPassword ? "text" : "password"}
                         value={formData.confirmPassword}
-                        onChange={(e) => handleInputChange("confirmPassword", e.target.value)}
-                        className={errors.confirmPassword ? "border-red-500" : ""}
+                        onChange={(e) =>
+                          handleInputChange("confirmPassword", e.target.value)
+                        }
+                        className={
+                          errors.confirmPassword ? "border-red-500" : ""
+                        }
                       />
                       <Button
                         type="button"
                         variant="ghost"
                         size="sm"
                         className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                        onClick={() =>
+                          setShowConfirmPassword(!showConfirmPassword)
+                        }
                       >
-                        {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        {showConfirmPassword ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
                       </Button>
                     </div>
-                    {errors.confirmPassword && <p className="text-sm text-red-500">{errors.confirmPassword}</p>}
+                    {errors.confirmPassword && (
+                      <p className="text-sm text-red-500">
+                        {errors.confirmPassword}
+                      </p>
+                    )}
                   </div>
 
                   <div className="flex gap-2">
-                    <Button type="submit" disabled={isLoading} className="flex-1">
+                    <Button
+                      type="submit"
+                      disabled={isLoading}
+                      className="flex-1"
+                    >
                       {isLoading ? "Changing..." : "Change Password"}
                     </Button>
                     <Button
                       type="button"
                       variant="outline"
                       onClick={() => {
-                        setIsChangingPassword(false)
+                        setIsChangingPassword(false);
                         setFormData((prev) => ({
                           ...prev,
                           currentPassword: "",
                           newPassword: "",
                           confirmPassword: "",
-                        }))
-                        setErrors({})
+                        }));
+                        setErrors({});
                       }}
                       className="flex-1"
                     >
@@ -413,5 +745,5 @@ export default function ProfilePage() {
         </div>
       </div>
     </LayoutWrapper>
-  )
+  );
 }
