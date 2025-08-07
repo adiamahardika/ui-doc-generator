@@ -8,7 +8,6 @@ import {
   User,
   Settings,
   LogOut,
-  Activity,
   Home,
   Key,
   ChevronLeft,
@@ -45,7 +44,6 @@ export function Sidebar({
 
   const navItems = [
     { href: "/dashboard", label: "Dashboard", icon: Home },
-    { href: "/activity", label: "Activity Log", icon: Activity },
     { href: "/profile", label: "Profile", icon: Settings },
   ];
 

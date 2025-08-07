@@ -2,7 +2,7 @@
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Zap, User, Settings, LogOut, Activity, Home } from "lucide-react";
+import { Zap, User, Settings, LogOut, Home } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/contexts/auth-context";
@@ -28,7 +28,6 @@ export function Sidebar({ user, isCollapsed, onToggleCollapse }: SidebarProps) {
 
   const navItems = [
     { href: "/dashboard", label: "Dashboard", icon: Home },
-    { href: "/activity", label: "Activity Log", icon: Activity },
     { href: "/profile", label: "Profile", icon: Settings },
   ];
 
@@ -86,21 +85,18 @@ export function Sidebar({ user, isCollapsed, onToggleCollapse }: SidebarProps) {
       <div className="p-4 border-t border-gray-200">
         {!isCollapsed ? (
           <div className="space-y-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
-                <User className="h-5 w-5 text-blue-600" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-900 truncate">
-                  {user.name}
-                </p>
-                <p className="text-xs text-gray-600 truncate">{user.email}</p>
-              </div>
-            </div>
             <div className="flex items-center justify-between">
-              <Badge variant="secondary" className="text-xs">
-                User
-              </Badge>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
+                  <User className="h-5 w-5 text-blue-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-900 truncate">
+                    {user.name}
+                  </p>
+                  <p className="text-xs text-gray-600 truncate">{user.email}</p>
+                </div>
+              </div>
               <Button
                 variant="ghost"
                 size="sm"
