@@ -15,6 +15,110 @@ import { FileContentViewer } from "@/components/file-content-viewer";
 import { BranchSelector } from "@/components/branch-selector";
 import { apiRequest } from "@/lib/auth";
 
+// PDF and ZIP utilities
+const generatePDFFromMarkdown = async (
+  markdown: string,
+  fileName: string
+): Promise<Blob> => {
+  // Using jsPDF with markdown-to-html conversion
+  const { jsPDF } = await import("jspdf");
+
+  const doc = new jsPDF();
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const margin = 20;
+  const maxWidth = pageWidth - margin * 2;
+
+  // Add title
+  doc.setFontSize(16);
+  doc.setFont(undefined, "bold");
+  doc.text(`Documentation: ${fileName}`, margin, 30);
+
+  // Add content (simplified markdown to text conversion)
+  doc.setFontSize(10);
+  doc.setFont(undefined, "normal");
+
+  // Simple markdown processing - convert to plain text with basic formatting
+  const lines = markdown.split("\n");
+  let yPosition = 50;
+  const lineHeight = 6;
+
+  for (const line of lines) {
+    if (yPosition > doc.internal.pageSize.getHeight() - margin) {
+      doc.addPage();
+      yPosition = margin;
+    }
+
+    // Handle different markdown elements
+    let processedLine = line;
+    let fontSize = 10;
+    let fontStyle: "normal" | "bold" = "normal";
+
+    if (line.startsWith("# ")) {
+      processedLine = line.substring(2);
+      fontSize = 14;
+      fontStyle = "bold";
+    } else if (line.startsWith("## ")) {
+      processedLine = line.substring(3);
+      fontSize = 12;
+      fontStyle = "bold";
+    } else if (line.startsWith("### ")) {
+      processedLine = line.substring(4);
+      fontSize = 11;
+      fontStyle = "bold";
+    } else if (line.startsWith("**") && line.endsWith("**")) {
+      processedLine = line.substring(2, line.length - 2);
+      fontStyle = "bold";
+    }
+
+    doc.setFontSize(fontSize);
+    doc.setFont(undefined, fontStyle);
+
+    // Split long lines
+    const splitLines = doc.splitTextToSize(processedLine, maxWidth);
+    for (const splitLine of splitLines) {
+      if (yPosition > doc.internal.pageSize.getHeight() - margin) {
+        doc.addPage();
+        yPosition = margin;
+      }
+      doc.text(splitLine, margin, yPosition);
+      yPosition += lineHeight;
+    }
+
+    yPosition += 2; // Extra spacing between paragraphs
+  }
+
+  return new Blob([doc.output("blob")], { type: "application/pdf" });
+};
+
+const createZipWithPDFs = async (
+  pdfs: Array<{ fileName: string; pdf: Blob }>
+): Promise<Blob> => {
+  const JSZip = (await import("jszip")).default;
+  const zip = new JSZip();
+
+  for (const { fileName, pdf } of pdfs) {
+    const pdfName = fileName.replace(/\.[^/.]+$/, "") + "_documentation.pdf";
+    zip.file(pdfName, pdf);
+  }
+
+  return await zip.generateAsync({ type: "blob" });
+};
+
+const downloadFile = (blob: Blob, fileName: string, mimeType: string) => {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  link.style.display = "none";
+
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+
+  // Clean up the URL object
+  setTimeout(() => URL.revokeObjectURL(url), 100);
+};
+
 interface FileNode {
   id: string;
   name: string;
@@ -395,6 +499,15 @@ export default function FilesPage() {
   const handleFileSelect = (filePath: string, checked: boolean) => {
     const newSelected = new Set(selectedFiles);
     if (checked) {
+      // Check if adding this file would exceed the limit
+      if (newSelected.size >= 5) {
+        setNotification({
+          type: "error",
+          message:
+            "Maximum 5 files can be selected for documentation generation.",
+        });
+        return;
+      }
       newSelected.add(filePath);
     } else {
       newSelected.delete(filePath);
@@ -402,14 +515,8 @@ export default function FilesPage() {
     setSelectedFiles(newSelected);
   };
 
-  const handleSelectAll = (checked: boolean) => {
-    if (checked) {
-      const allFiles = getAllFiles(files);
-      const allFilePaths = allFiles.map((file) => file.path);
-      setSelectedFiles(new Set(allFilePaths));
-    } else {
-      setSelectedFiles(new Set());
-    }
+  const handleUnselectAll = () => {
+    setSelectedFiles(new Set());
   };
 
   const generateDocumentation = async () => {
@@ -421,36 +528,176 @@ export default function FilesPage() {
       return;
     }
 
+    if (selectedFiles.size > 5) {
+      setNotification({
+        type: "error",
+        message:
+          "Maximum 5 files allowed per request. Please deselect some files.",
+      });
+      return;
+    }
+
     setIsGenerating(true);
     setProgress(0);
     setNotification(null);
 
-    // Simulate documentation generation with progress
-    const totalFiles = selectedFiles.size;
+    try {
+      // Step 1: Fetch file contents and prepare for API
+      setProgress(10);
+      const selectedFilePaths = Array.from(selectedFiles);
+      const filesData = [];
 
-    for (let i = 0; i < totalFiles; i++) {
-      await new Promise((resolve) => setTimeout(resolve, 1500)); // Simulate processing time
-      setProgress(((i + 1) / totalFiles) * 100);
-    }
+      // Get all files data including content
+      const allFiles = getAllFiles(files);
 
-    // Simulate download
-    setTimeout(() => {
-      setIsGenerating(false);
+      for (let i = 0; i < selectedFilePaths.length; i++) {
+        const filePath = selectedFilePaths[i];
+        const fileNode = allFiles.find((f) => f.path === filePath);
+
+        if (!fileNode) continue;
+
+        try {
+          // Fetch file content if not already loaded
+          let fileContent = fileNode.content;
+          let encoding = fileNode.encoding;
+
+          if (!fileContent) {
+            // Fetch file content from GitHub API
+            const queryParams = new URLSearchParams();
+            queryParams.append("path", filePath);
+            if (currentBranch && currentBranch !== "main") {
+              queryParams.append("branch", currentBranch);
+            }
+
+            const savedToken = sessionStorage.getItem("github_token");
+            if (savedToken) {
+              queryParams.append("access_token", savedToken);
+            }
+
+            const endpoint = `/api/github/repository/${encodeURIComponent(
+              repository.name
+            )}?${queryParams.toString()}`;
+
+            const response = await apiRequest(endpoint, { method: "GET" });
+
+            if (response.ok) {
+              const result = await response.json();
+              if (result.success && result.data) {
+                fileContent = result.data.content;
+                encoding = result.data.encoding;
+              }
+            }
+          }
+
+          if (fileContent && encoding === "base64") {
+            filesData.push({
+              file_name: fileNode.path,
+              base64: fileContent, // Already base64 encoded from GitHub
+            });
+          }
+        } catch (error) {
+          console.error(`Error fetching content for ${filePath}:`, error);
+        }
+
+        setProgress(10 + ((i + 1) / selectedFilePaths.length) * 30);
+      }
+
+      if (filesData.length === 0) {
+        throw new Error("No valid files found to process");
+      }
+
+      // Step 2: Call OpenAI documentation generation API
+      setProgress(50);
+      const docResponse = await apiRequest(
+        "/api/openai/generate-documentation",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            files: filesData,
+          }),
+        }
+      );
+
+      if (!docResponse.ok) {
+        const errorData = await docResponse.json().catch(() => ({}));
+        throw new Error(
+          errorData.message || "Failed to generate documentation"
+        );
+      }
+
+      const docResult = await docResponse.json();
+      setProgress(80);
+
+      if (!docResult.success || !docResult.data?.results) {
+        throw new Error(docResult.message || "Documentation generation failed");
+      }
+
+      // Step 3: Generate PDFs and handle download
+      const results = docResult.data.results;
+      const errors = docResult.data.errors || [];
+
+      if (results.length === 0) {
+        throw new Error("No documentation was generated");
+      }
+
+      // Generate PDFs for each successful result
+      const pdfs = await Promise.all(
+        results.map(async (result: any) => {
+          const pdf = await generatePDFFromMarkdown(
+            result.documentation,
+            result.file
+          );
+          return { fileName: result.file, pdf };
+        })
+      );
+
+      setProgress(95);
+
+      // Step 4: Handle download
+      if (pdfs.length === 1) {
+        // Single file - direct PDF download
+        const { fileName, pdf } = pdfs[0];
+        const pdfName =
+          fileName.replace(/\.[^/.]+$/, "") + "_documentation.pdf";
+        downloadFile(pdf, pdfName, "application/pdf");
+      } else {
+        // Multiple files - create ZIP
+        const zip = await createZipWithPDFs(pdfs);
+        const zipName = `${repository.name}-${currentBranch}-documentation.zip`;
+        downloadFile(zip, zipName, "application/zip");
+      }
+
+      setProgress(100);
+
+      // Success notification
+      const successMessage =
+        errors.length > 0
+          ? `Documentation generated for ${results.length} files successfully. ${errors.length} files failed.`
+          : `Documentation generated successfully for ${results.length} files!`;
+
       setNotification({
         type: "success",
-        message: `Documentation generated successfully for ${totalFiles} files! Download started automatically.`,
+        message: successMessage,
       });
-
-      // Create a mock download
-      const link = document.createElement("a");
-      link.href =
-        "data:text/plain;charset=utf-8,Mock documentation files generated";
-      link.download = `${repository.name}-${currentBranch}-documentation.zip`;
-      link.click();
 
       // Clear selection after successful generation
       setSelectedFiles(new Set());
-    }, 500);
+    } catch (error) {
+      console.error("Error generating documentation:", error);
+      setNotification({
+        type: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Failed to generate documentation",
+      });
+    } finally {
+      setIsGenerating(false);
+      setProgress(0);
+    }
   };
 
   if (!user || !repository) {
@@ -558,10 +805,6 @@ export default function FilesPage() {
                 </span>
               </div>
               <Progress value={progress} className="h-2" />
-              <p className="text-xs text-blue-600 mt-2">
-                Using GPT-4 to analyze code and generate comprehensive
-                documentation
-              </p>
             </div>
           </div>
         )}
@@ -582,19 +825,30 @@ export default function FilesPage() {
                 />
               </div>
               <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="select-all"
-                    checked={
-                      totalFiles > 0 && selectedFiles.size === totalFiles
-                    }
-                    onCheckedChange={handleSelectAll}
-                  />
-                  <label htmlFor="select-all" className="text-sm font-medium">
-                    Select All
-                  </label>
+                <div className="text-sm font-medium text-gray-700">
+                  File Selection
+                </div>
+                <div className="flex items-center gap-2">
+                  {selectedFiles.size > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleUnselectAll}
+                      className="text-xs h-6 px-2 text-gray-500 hover:text-gray-700"
+                    >
+                      Unselect All
+                    </Button>
+                  )}
+                  <div className="text-xs text-gray-500">
+                    {selectedFiles.size}/5 selected
+                  </div>
                 </div>
               </div>
+              {selectedFiles.size > 0 && (
+                <div className="mt-2 text-xs text-blue-600">
+                  Maximum 5 files per documentation request
+                </div>
+              )}
             </div>
 
             {/* File Tree */}
