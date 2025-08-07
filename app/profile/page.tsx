@@ -220,6 +220,14 @@ export default function ProfilePage() {
       newErrors.newPassword = "New password is required";
     } else if (formData.newPassword.length < 8) {
       newErrors.newPassword = "Password must be at least 8 characters";
+    } else if (!/(?=.*[a-z])/.test(formData.newPassword)) {
+      newErrors.newPassword =
+        "Password must contain at least one lowercase letter";
+    } else if (!/(?=.*[A-Z])/.test(formData.newPassword)) {
+      newErrors.newPassword =
+        "Password must contain at least one uppercase letter";
+    } else if (!/(?=.*\d)/.test(formData.newPassword)) {
+      newErrors.newPassword = "Password must contain at least one number";
     }
 
     if (formData.newPassword !== formData.confirmPassword) {
@@ -313,20 +321,25 @@ export default function ProfilePage() {
     setNotification(null);
 
     try {
-      const updateData = {
-        password: formData.newPassword,
+      const passwordData = {
+        current_password: formData.currentPassword,
+        new_password: formData.newPassword,
+        confirm_password: formData.confirmPassword,
       };
 
-      const response = await apiRequest(`/api/users/${user.id}`, {
-        method: "PUT",
-        body: JSON.stringify(updateData),
-      });
+      const response = await apiRequest(
+        `/api/users/${user.id}/change-password`,
+        {
+          method: "POST",
+          body: JSON.stringify(passwordData),
+        }
+      );
 
       if (!response.ok) {
         throw new Error("Failed to change password");
       }
 
-      const result: ApiResponse<UserType> = await response.json();
+      const result: ApiResponse<null> = await response.json();
 
       if (result.success) {
         setFormData((prev) => ({
@@ -675,6 +688,57 @@ export default function ProfilePage() {
                       <p className="text-sm text-red-500">
                         {errors.newPassword}
                       </p>
+                    )}
+                    {!errors.newPassword && formData.newPassword && (
+                      <div className="text-xs text-gray-500 space-y-1">
+                        <p className="font-medium">Password requirements:</p>
+                        <div className="grid grid-cols-1 gap-1">
+                          <span
+                            className={
+                              formData.newPassword.length >= 8
+                                ? "text-green-600"
+                                : "text-gray-400"
+                            }
+                          >
+                            {formData.newPassword.length >= 8 ? "✓" : "○"} At
+                            least 8 characters
+                          </span>
+                          <span
+                            className={
+                              /(?=.*[a-z])/.test(formData.newPassword)
+                                ? "text-green-600"
+                                : "text-gray-400"
+                            }
+                          >
+                            {/(?=.*[a-z])/.test(formData.newPassword)
+                              ? "✓"
+                              : "○"}{" "}
+                            One lowercase letter
+                          </span>
+                          <span
+                            className={
+                              /(?=.*[A-Z])/.test(formData.newPassword)
+                                ? "text-green-600"
+                                : "text-gray-400"
+                            }
+                          >
+                            {/(?=.*[A-Z])/.test(formData.newPassword)
+                              ? "✓"
+                              : "○"}{" "}
+                            One uppercase letter
+                          </span>
+                          <span
+                            className={
+                              /(?=.*\d)/.test(formData.newPassword)
+                                ? "text-green-600"
+                                : "text-gray-400"
+                            }
+                          >
+                            {/(?=.*\d)/.test(formData.newPassword) ? "✓" : "○"}{" "}
+                            One number
+                          </span>
+                        </div>
+                      </div>
                     )}
                   </div>
 
