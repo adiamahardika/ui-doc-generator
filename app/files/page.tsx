@@ -879,7 +879,6 @@ export default function FilesPage() {
   }
 
   const allFiles = getAllFiles(files);
-  const totalFiles = allFiles.length;
 
   return (
     <LayoutWrapper user={user}>

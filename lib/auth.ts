@@ -129,13 +129,7 @@ export const apiRequest = async (
 
 // Logout user
 export const logout = async (): Promise<void> => {
-  try {
-    await apiRequest("/api/auth/logout", { method: "POST" });
-  } catch (error) {
-    console.error("Logout error:", error);
-  } finally {
-    clearAuth();
-  }
+  clearAuth();
 };
 
 // Login user

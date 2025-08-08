@@ -3,22 +3,9 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import {
-  Copy,
-  Download,
-  Edit,
-  Eye,
-  FileText,
-  MoreHorizontal,
-  Loader2,
-} from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { Copy, Download, FileText, Loader2 } from "lucide-react";
 import { apiRequest } from "@/lib/auth";
+import { getGitHubToken } from "@/lib/github-token";
 
 interface FileNode {
   id: string;
@@ -46,7 +33,6 @@ export function FileContentViewer({
   file,
   repository,
   currentBranch = "main",
-  onClose,
 }: FileContentViewerProps) {
   const [viewMode, setViewMode] = useState<"code" | "blame">("code");
   const [content, setContent] = useState<string>("");
@@ -152,7 +138,7 @@ export function FileContentViewer({
       }
 
       // Add access token if available
-      const savedToken = sessionStorage.getItem("github_token");
+      const savedToken = getGitHubToken();
       if (savedToken) {
         queryParams.append("access_token", savedToken);
       }
